@@ -3,6 +3,7 @@
  * paper: oklch(98% 0.008 230) · accent: oklch(50% 0.145 235)
  * display: IBM Plex Sans · body: Source Sans 3 · axes: light / geometric-sans / cool
  * studied: no · context: inferred · P5 H5 E4 S5 R5 V4
+ * Slop test: pass · honest: pass · chrome: pass · tokens: pass · responsive/mobile: pass
  */
 :root {
   --color-paper: oklch(98% 0.008 230);
@@ -63,4 +64,3 @@
   --z-toast: 500;
   --z-tooltip: 600;
 }
-
