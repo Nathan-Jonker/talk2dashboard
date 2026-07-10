@@ -1,10 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 
-from talk2dashboard.domain import TrustTier
-from talk2dashboard.sources.live import LuchtmeetnetAdapter, NDWIncidentAdapter, RWSWaterAdapter
-from talk2dashboard.sources.rss import RSSAdapter
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from talk2dashboard.domain import TrustTier  # noqa: E402
+from talk2dashboard.sources.live import (  # noqa: E402
+    LuchtmeetnetAdapter,
+    NDWIncidentAdapter,
+    RWSWaterAdapter,
+)
+from talk2dashboard.sources.rss import RSSAdapter  # noqa: E402
 
 
 async def main() -> int:

@@ -3,13 +3,20 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
 
-from talk2dashboard.config import get_settings
-from talk2dashboard.integrations.elevenlabs_config import client_tool, desired_agent_config
-from talk2dashboard.tools.definitions import TOOL_DEFINITIONS
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+from talk2dashboard.config import get_settings  # noqa: E402
+from talk2dashboard.integrations.elevenlabs_config import (  # noqa: E402
+    client_tool,
+    desired_agent_config,
+)
+from talk2dashboard.tools.definitions import TOOL_DEFINITIONS  # noqa: E402
 
 API_ROOT = "https://api.elevenlabs.io"
 
