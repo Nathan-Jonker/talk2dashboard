@@ -1,0 +1,66 @@
+/* Hallmark · macrostructure: Workbench · nav: N9 edge-aligned · dock: C4 sticky bottom
+ * theme: custom · vibe: "public precision, calm, technical, responsive"
+ * paper: oklch(98% 0.008 230) · accent: oklch(50% 0.145 235)
+ * display: IBM Plex Sans · body: Source Sans 3 · axes: light / geometric-sans / cool
+ * studied: no · context: inferred · P5 H5 E4 S5 R5 V4
+ */
+:root {
+  --color-paper: oklch(98% 0.008 230);
+  --color-paper-2: oklch(95% 0.012 230);
+  --color-paper-3: oklch(91% 0.014 230);
+  --color-ink: oklch(20% 0.018 230);
+  --color-ink-2: oklch(29% 0.022 230);
+  --color-muted: oklch(43% 0.018 230);
+  --color-neutral: oklch(55% 0.014 230);
+  --color-rule: oklch(82% 0.014 230);
+  --color-rule-2: oklch(89% 0.012 230);
+  --color-accent: oklch(50% 0.145 235);
+  --color-accent-ink: oklch(98% 0.008 230);
+  --color-focus: oklch(57% 0.19 235);
+  --color-coral: oklch(61% 0.18 32);
+  --color-coral-ink: oklch(98% 0.008 230);
+  --color-success: oklch(49% 0.12 155);
+  --color-warning: oklch(66% 0.14 75);
+  --color-error: oklch(56% 0.19 28);
+  --color-map-water: oklch(88% 0.025 230);
+  --color-map-land: oklch(96% 0.01 145);
+
+  --font-display: "IBM Plex Sans", "Arial Narrow", sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.375rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --rule-thin: 1px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}
+
