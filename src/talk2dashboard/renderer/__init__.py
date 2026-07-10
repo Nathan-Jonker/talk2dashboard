@@ -1,0 +1,1 @@
+"""Deterministic Vizro/Dash renderer."""
