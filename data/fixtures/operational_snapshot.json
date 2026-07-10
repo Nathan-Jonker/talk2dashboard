@@ -1,0 +1,21 @@
+{
+  "fixture_id": "fixture_cross_source_demo_v1",
+  "label": "Synthetische cross-source demo rond Moerdijk",
+  "recorded_at": "2026-07-10T09:00:00Z",
+  "synthetic": true,
+  "events": [
+    {"record_id":"fixture-p2000-001","stream_id":"p2000","category":"brandweer","title":"Industriebrand gemeld bij Moerdijk","description":"Synthetische P2000-achtige melding voor de portfoliofixture.","severity":"high","status":"active","observed_at":"2026-07-10T08:36:00Z","location":{"label":"Moerdijk","latitude":51.7017,"longitude":4.6264,"uncertainty_radius_m":1200},"attributes":{"discipline":"brandweer","fixture":true},"owner":"Talk2Dashboard fixture","trust_tier":"fixture"},
+    {"record_id":"fixture-ndw-001","stream_id":"ndw_incidents","category":"wegincident","title":"Afrit nabij Moerdijk beperkt beschikbaar","description":"Synthetische verkeerscontext voor de portfoliofixture.","severity":"medium","status":"active","observed_at":"2026-07-10T08:43:00Z","location":{"label":"A17 Moerdijk","latitude":51.7048,"longitude":4.6405,"uncertainty_radius_m":500},"attributes":{"road":"A17","fixture":true},"owner":"Talk2Dashboard fixture","trust_tier":"fixture"},
+    {"record_id":"fixture-nos-001","stream_id":"nos_rss","category":"media_context","title":"Voorbeeld nieuwscontext bij industriegebied","description":"Geen echt NOS-bericht; alleen bedoeld om trust-tier rendering te testen.","severity":"unknown","status":"context","observed_at":"2026-07-10T08:48:00Z","location":{"label":"Moerdijk","latitude":51.7017,"longitude":4.6264,"uncertainty_radius_m":5000},"attributes":{"fixture":true},"owner":"Talk2Dashboard fixture","trust_tier":"fixture"}
+  ],
+  "measurements": [
+    {"record_id":"fixture-knmi-wind-1","stream_id":"knmi_observations","metric":"wind_gust_kmh","value":48.0,"unit":"km/h","observed_at":"2026-07-10T08:10:00Z","station":"Gilze-Rijen","latitude":51.5667,"longitude":4.9333,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-knmi-wind-2","stream_id":"knmi_observations","metric":"wind_gust_kmh","value":55.0,"unit":"km/h","observed_at":"2026-07-10T08:20:00Z","station":"Gilze-Rijen","latitude":51.5667,"longitude":4.9333,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-knmi-wind-3","stream_id":"knmi_observations","metric":"wind_gust_kmh","value":62.0,"unit":"km/h","observed_at":"2026-07-10T08:30:00Z","station":"Gilze-Rijen","latitude":51.5667,"longitude":4.9333,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-knmi-wind-4","stream_id":"knmi_observations","metric":"wind_gust_kmh","value":59.0,"unit":"km/h","observed_at":"2026-07-10T08:40:00Z","station":"Gilze-Rijen","latitude":51.5667,"longitude":4.9333,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-knmi-wind-5","stream_id":"knmi_observations","metric":"wind_gust_kmh","value":51.0,"unit":"km/h","observed_at":"2026-07-10T08:50:00Z","station":"Gilze-Rijen","latitude":51.5667,"longitude":4.9333,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-rws-water-1","stream_id":"rws_water","metric":"water_level_cm","value":112.0,"unit":"cm","observed_at":"2026-07-10T08:45:00Z","station":"Moerdijk","latitude":51.7009,"longitude":4.6277,"owner":"Talk2Dashboard fixture"},
+    {"record_id":"fixture-air-1","stream_id":"luchtmeetnet","metric":"no2_ug_m3","value":21.4,"unit":"ug/m3","observed_at":"2026-07-10T08:00:00Z","station":"NL10549","latitude":51.644,"longitude":4.677,"owner":"Talk2Dashboard fixture"}
+  ]
+}
+

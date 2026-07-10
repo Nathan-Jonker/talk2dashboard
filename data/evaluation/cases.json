@@ -1,0 +1,85 @@
+[
+  {
+    "id": "initial-cross-source-view",
+    "utterance": "Bouw een operationeel beeld met actuele P2000-meldingen, wind en verkeershinder.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_streams": ["p2000", "knmi", "ndw_incidents"],
+    "expected_panel_types": ["map_2d", "incident_timeline", "timeseries"]
+  },
+  {
+    "id": "nearby-critical-places",
+    "utterance": "Welke scholen en ziekenhuizen liggen binnen vijf kilometer van het geselecteerde incident?",
+    "expected_tools": ["nearby_places", "dashboard_batch"],
+    "expected_radius_m": 5000,
+    "expected_panel_type": "nearby_places"
+  },
+  {
+    "id": "wind-baseline-trend",
+    "utterance": "Vergelijk de actuele windstoten met normaal en toon ook de trend.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_operations": ["baseline", "query_series"],
+    "expected_panel_types": ["comparison", "timeseries"]
+  },
+  {
+    "id": "water-quality-flags",
+    "utterance": "Toon de actuele waterstanden en maak onzekerheid of kwaliteitswaarschuwingen zichtbaar.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_streams": ["rws_water"],
+    "expected_visible_fields": ["quality_flags", "source_ref"]
+  },
+  {
+    "id": "road-rail-no-causality",
+    "utterance": "Vergelijk verkeersincidenten met NS-storingen, maar presenteer samenloop niet als oorzaak.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_streams": ["ndw_incidents", "ns_disruptions"],
+    "expected_causality_claim": false
+  },
+  {
+    "id": "air-quality-cadence",
+    "utterance": "Laat de luchtkwaliteit zien en vermeld hoe actueel de metingen zijn.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_streams": ["luchtmeetnet"],
+    "expected_visible_fields": ["observed_at", "quality_flags"]
+  },
+  {
+    "id": "nos-context-separate",
+    "utterance": "Geef relevante NOS-context bij dit incident, maar houd nieuws duidelijk gescheiden van operationele brondata.",
+    "expected_tools": ["data_batch", "dashboard_batch"],
+    "expected_streams": ["nos_rss"],
+    "expected_panel_type": "evidence"
+  },
+  {
+    "id": "websearch-disabled",
+    "utterance": "Zoek online naar extra achtergrondinformatie terwijl websearch uitstaat.",
+    "preconditions": {"web_search_enabled": false},
+    "expected_tools": ["external_search"],
+    "expected_error": "POLICY_DISABLED"
+  },
+  {
+    "id": "websearch-enabled",
+    "utterance": "Zoek online naar recente officiële achtergrondinformatie en plaats die als externe context naast de brondata.",
+    "preconditions": {"web_search_enabled": true},
+    "expected_tools": ["external_search", "dashboard_batch"],
+    "expected_trust_tier": "unverified_external"
+  },
+  {
+    "id": "screenshot-qa",
+    "utterance": "Maak een screenshot van het hele dashboard en controleer de leesbaarheid en layout.",
+    "expected_tools": ["capture_dashboard"],
+    "expected_scope": "full_dashboard",
+    "expected_outputs": ["screenshot_handle", "structured_state"]
+  },
+  {
+    "id": "ambiguous-location",
+    "utterance": "Zoom in op Bergen en toon de incidenten daar.",
+    "expected_tools": ["data_batch"],
+    "expected_behavior": "clarify_before_dashboard_change"
+  },
+  {
+    "id": "stale-source-fallback",
+    "utterance": "Toon het actuele operationele beeld ook als een bron tijdelijk niet ververst.",
+    "fixture_control": {"source": "ndw_incidents", "mode": "fail"},
+    "expected_tools": ["inspect_workspace", "dashboard_batch"],
+    "expected_warning": "stale_or_previous_compatible_handle"
+  }
+]

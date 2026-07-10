@@ -1,0 +1,70 @@
+[project]
+name = "talk2dashboard"
+version = "0.1.0"
+description = "Voice-first Dutch operational dashboard over immutable live public data."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "a2wsgi>=1.10.8",
+    "aiosqlite>=0.21.0",
+    "alembic>=1.16.0",
+    "cerebras-cloud-sdk>=1.50.0",
+    "dash>=3.3.0,<5",
+    "dash-ag-grid>=32.3.0",
+    "fastapi>=0.116.0",
+    "feedparser>=6.0.11",
+    "h5py>=3.14.0",
+    "httpx>=0.28.0",
+    "h5netcdf>=1.6.0",
+    "jsonpatch>=1.33",
+    "lxml>=5.4.0",
+    "numpy>=2.2.0",
+    "num2words>=0.5.14",
+    "pandas>=2.2.0",
+    "plotly>=6.0.0",
+    "pydantic-settings>=2.10.0",
+    "python-dateutil>=2.9.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.41",
+    "uvicorn[standard]>=0.35.0",
+    "vizro>=0.1.40",
+    "xarray>=2025.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "playwright>=1.52.0",
+    "pyright>=1.1.400",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.1.0",
+    "respx>=0.22.0",
+    "ruff>=0.12.0",
+]
+
+[project.scripts]
+talk2dashboard = "talk2dashboard.main:run"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/talk2dashboard"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
