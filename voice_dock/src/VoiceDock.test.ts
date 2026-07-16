@@ -76,8 +76,9 @@ describe("voice dock contract", () => {
     const context = operatorContextMessage(selection!);
     expect(context).toContain("nearby_places");
     expect(context).toContain("origin_text");
+    expect(context).toContain("query_nearby");
+    expect(context).toContain("ongefilterde landelijke query");
     expect(context).toContain("gegeocodeerd");
-    expect(context).not.toContain("query_nearby");
   });
 
   it("rejects malformed persisted operator selections", () => {

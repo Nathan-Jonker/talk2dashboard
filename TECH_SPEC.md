@@ -60,7 +60,7 @@ Een operationeel analist krijgt een nieuwe P2000-achtige melding rond een Nederl
 1. de melding en gerelateerde incidenten te tonen;
 2. de locatie te koppelen aan weer, water, verkeer, luchtkwaliteit, spoorverstoringen en nieuwscontext;
 3. alleen relevante panelen te tonen;
-4. nabijgelegen objecten zoals scholen, ziekenhuizen en tankstations binnen maximaal vijf kilometer te zoeken;
+4. nabijgelegen objecten zoals scholen, ziekenhuizen en tankstations binnen maximaal vijfentwintig kilometer te zoeken;
 5. bronzekerheid en actualiteit zichtbaar te houden;
 6. mondeling antwoord te geven zonder andere waarden te noemen dan de datahandles bevatten.
 
@@ -514,7 +514,7 @@ Ondersteunde operations:
 
 - `query_events`: stream, beperkte filter-DSL, window, sortering en limit;
 - `query_measurements`: meetstream, metric(s), beperkte filter-DSL, window, sortering en limit;
-- `query_nearby`: een doelstream rond een of alle geolokaliseerde records uit een immutable `origin_handle`, optioneel beperkt tot `origin_record_id`, met een harde straalgrens van tien kilometer;
+- `query_nearby`: een doelstream rond geolokaliseerde records uit een immutable `origin_handle`, of rond een tijdelijke `origin_resolution_id`/`origin_text` wanneer een bronrecord alleen adres- of plaatsinformatie bevat, met een harde straalgrens van vijfentwintig kilometer;
 - `aggregate`: input handle of stream, metric, group-by, window en functie;
 - `baseline`: metric, locatie/segment, historisch venster en methode;
 - `correlate`: twee handles/series, window, lag en methode;
@@ -534,7 +534,7 @@ Filter-DSL:
 - geen SQL, regex, script, expression language of computed literal series;
 - limieten en time windows worden server-side begrensd.
 
-`query_nearby` is de generieke bidirectionele cross-source spatial join. P2000, NDW, NS-stations, KNMI-stations, RWS-waterpunten en Luchtmeetnetstations kunnen zowel origin als doel zijn. De query-engine laadt de origin-handle eenmaal, berekent lokaal de haversine-afstand en annoteert elk resultaat met `distance_m`, `distance_origin_record_id` en `distance_origin_label`. Google Geocoding wordt alleen gebruikt wanneer de gebruiker vrije locatietekst opgeeft en er geen bronrecord met geometrie is; Google Places blijft uitsluitend voor externe voorzieningen.
+`query_nearby` is de generieke bidirectionele cross-source spatial join. P2000, NDW, NS-stations, KNMI-stations, RWS-waterpunten en Luchtmeetnetstations kunnen zowel origin als doel zijn. De query-engine laadt de origin-handle eenmaal, of ontvangt een actieve tijdelijke locatie uit de policy-store, berekent lokaal de haversine-afstand en annoteert elk resultaat met `distance_m`, `distance_origin_record_id` en `distance_origin_label`. Google Geocoding wordt alleen gebruikt wanneer een geselecteerd record geen geometrie maar wel een bruikbaar adres of plaatslabel heeft. Die resolutie verloopt na vijftien minuten en wordt niet als canonical bronrecord of generieke locatiehandle opgeslagen. Een gewone landelijke query is nooit een fallback voor een radiusvraag. Google Places blijft uitsluitend voor externe voorzieningen.
 
 Output: een result map van alias naar `DataHandle`, maximaal vijf previewrecords, freshness en compacte `source_status` voor alle bevraagde streams. Hierdoor kan de agent een resultaat onderbouwen zonder een aparte inspectieronde.
 
@@ -605,8 +605,8 @@ Input:
 - precies een van `origin_handle`, `location_ref`, `resolution_id` of `origin_text`;
 - `origin_text` wordt binnen dezelfde toolcall via Google Geocoding naar een vijftien minuten geldige `EphemeralLocationResolution` vertaald; de tekst wordt nooit als coordinaat of canonieke bronlocatie opgeslagen;
 - `included_types`: toegestane Google Place types, bijvoorbeeld `school`, `hospital`, `gas_station`, `fire_station`, `police`, `pharmacy`;
-- `radius_m`: groter dan nul en maximaal vijfduizend;
-- `max_results`: een tot twintig;
+- `radius_m`: groter dan nul en maximaal vijfentwintigduizend, standaard vijfentwintigduizend;
+- `max_results`: een tot vijftien, standaard vijftien;
 - `rank`: `distance` of `popularity`;
 - `fields_profile`: `minimal`, `contact`, `operational`.
 
@@ -1406,7 +1406,7 @@ Rules:
 - Alle zichtbare data toont bron en freshness.
 - Typed chat en voice gebruiken dezelfde agentcontext.
 - Websearch is bij startup uit en server-side geblokkeerd.
-- Places accepteert maximaal vijf kilometer en maximaal twintig resultaten.
+- Places accepteert maximaal vijfentwintig kilometer en maximaal vijftien resultaten.
 - Screenshottool levert image en structured snapshot voor dezelfde dashboardversie.
 - De app sluit iedere ElevenLabs-session betrouwbaar af.
 - Evaluation fixtures zijn reproduceerbaar zonder live P2000, Google of websearch.
@@ -1593,7 +1593,7 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 - Activeer Maps JavaScript API, 3D Maps-capability, Geocoding API en Places API (New).
 - Koppel billing en een laag dagelijks budget/alerts.
 - Stel browser- en serverkey restrictions in.
-- Gebruik Nearby Search met radius maximaal vijfduizend meter, maximaal twintig resultaten en minimale FieldMask.
+- Gebruik Nearby Search met radius maximaal vijfentwintigduizend meter, maximaal vijftien resultaten en minimale FieldMask.
 - Controleer EEA-voorwaarden, attributie en cachingregels.
 
 ## Manual test checklist before GitHub publication

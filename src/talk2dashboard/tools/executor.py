@@ -408,8 +408,13 @@ class ToolExecutor:
         parallel_inputs: list[tuple[int, dict[str, Any]]] = []
         for index, (_save_as, raw_query) in enumerate(operation_parts):
             operation_name = str(raw_query.get("operation", "query"))
-            if operation_name in self.PARALLEL_QUERY_OPERATIONS and not self._alias_references(
-                raw_query
+            if (
+                operation_name in self.PARALLEL_QUERY_OPERATIONS
+                and not self._alias_references(raw_query)
+                and not (
+                    operation_name == "query_nearby"
+                    and (raw_query.get("origin_text") or raw_query.get("origin_resolution_id"))
+                )
             ):
                 parallel_inputs.append((index, self._normalize_data_query(raw_query, {})))
         parallel_prepared = await asyncio.gather(
@@ -434,7 +439,50 @@ class ToolExecutor:
             if query_spec.get("stream"):
                 queried_streams.add(str(query_spec["stream"]))
             operation_name = query_spec.get("operation", "query")
-            if index in precomputed_queries:
+            if operation_name == "query_nearby" and (
+                query_spec.get("origin_text") or query_spec.get("origin_resolution_id")
+            ):
+                origin_text = str(query_spec.pop("origin_text", "") or "").strip()
+                resolution_id = str(query_spec.get("origin_resolution_id") or "").strip()
+                if origin_text:
+                    geocoded = await self.geocoding.resolve(origin_text)
+                    matches = geocoded.get("matches") or []
+                    if not matches:
+                        raise ToolExecutionError(
+                            "LOCATION_NOT_RESOLVED",
+                            "Google vond geen locatie; verduidelijk het adres of de plaats.",
+                        )
+                    resolution = self.locations.put(origin_text, matches[0])
+                    resolution_id = resolution.resolution_id
+                    query_spec["origin_resolution_id"] = resolution_id
+                else:
+                    try:
+                        resolution = self.locations.get(resolution_id)
+                    except KeyError as exc:
+                        raise ToolExecutionError(
+                            "LOCATION_RESOLUTION_EXPIRED",
+                            "De tijdelijke locatie is verlopen; resolveer de plaats opnieuw.",
+                            retryable=True,
+                        ) from exc
+                kind, normalized_query, rows, resolved_bundle = await asyncio.to_thread(
+                    self.query.prepare,
+                    query_spec,
+                    bundle_version,
+                    origin_location={
+                        "latitude": resolution.latitude,
+                        "longitude": resolution.longitude,
+                        "label": resolution.display_label,
+                    },
+                )
+                handle = await asyncio.to_thread(
+                    self.query.create_handle,
+                    kind,
+                    normalized_query,
+                    rows,
+                    resolved_bundle,
+                    900,
+                )
+            elif index in precomputed_queries:
                 kind, normalized_query, rows, resolved_bundle = precomputed_queries[index]
                 handle = await asyncio.to_thread(
                     self.query.create_handle,
@@ -926,8 +974,8 @@ class ToolExecutor:
                 latitude=origin_latitude,
                 longitude=origin_longitude,
                 included_types=included_types,
-                radius_m=int(payload.get("radius_m", 5000)),
-                max_results=int(payload.get("max_results", 10)),
+                radius_m=int(payload.get("radius_m", 25_000)),
+                max_results=int(payload.get("max_results", 15)),
                 rank=payload.get("rank", "distance"),
                 fields_profile=payload.get("fields_profile", "minimal"),
             )

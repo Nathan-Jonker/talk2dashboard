@@ -193,13 +193,13 @@ async def test_query_nearby_enforces_ten_kilometre_limit(services):
     bundle = await sources.initialize_fixture()
     origin = query.execute({"operation": "query_events", "stream": "p2000", "limit": 1}, bundle)
 
-    with pytest.raises(ValueError, match="between 1 and 10000"):
+    with pytest.raises(ValueError, match="between 1 and 25000"):
         query.execute(
             {
                 "operation": "query_nearby",
                 "stream": "knmi_observations",
                 "origin_handle": origin.handle_id,
-                "radius_m": 10_001,
+                "radius_m": 25_001,
             },
             bundle,
         )

@@ -69,7 +69,7 @@ export function operatorContextMessage(selection: OperatorSelection): string {
   const spatialInstruction = hasCoordinates
     ? "Gebruik bij een ruimtelijke vervolgvraag direct data_batch met een exacte origin-query en query_nearby; inspect_workspace is niet nodig."
     : selection.streamId === "p2000"
-      ? `Dit P2000-bronrecord bevat geen ruwe coordinaten. Gebruik voor kaart- of voorzieningenvragen direct nearby_places met origin_text=${JSON.stringify(`${selection.title} ${selection.description || ""}`.trim())}; de places-handle bevat de afgeleide oorsprong als gele kaartmarker. Zeg niet dat kaartweergave onmogelijk is, maar label de positie als gegeocodeerd.`
+      ? `Dit P2000-bronrecord bevat geen ruwe coordinaten. Gebruik voor vaste databronnen rond deze melding direct data_batch query_nearby met origin_text=${JSON.stringify(`${selection.title} ${selection.description || ""}`.trim())} en de gevraagde radius; gebruik nearby_places met dezelfde origin_text alleen voor voorzieningen. Val nooit terug op een ongefilterde landelijke query. Elk radiusresultaat moet distance_m bevatten. Label de positie als gegeocodeerd.`
       : "Dit bronrecord bevat geen kaartcoordinaten; vraag alleen om verduidelijking wanneer titel en omschrijving geen bruikbare plaats bevatten.";
   return [
     "Stille dashboardcontext voor vervolgvragen; antwoord hier nu niet op.",

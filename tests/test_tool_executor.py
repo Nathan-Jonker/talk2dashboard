@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
@@ -336,6 +337,66 @@ async def test_data_batch_resolves_bidirectional_cross_source_radius_aliases(ser
     assert results["water_nearby"]["preview"][0]["distance_m"] < 200
     assert results["air_nearby"]["preview"][0]["distance_m"] < 10_000
     assert set(response.result["aliases"]) == {"origin", "water_nearby", "air_nearby"}
+
+
+async def test_data_batch_filters_fixed_sources_around_geocoded_origin_text(services, monkeypatch):
+    executor = await _executor(services)
+    bundle = executor.query.latest_bundle()
+    source_origin = executor.query.execute(
+        {
+            "operation": "query_events",
+            "stream": "p2000",
+            "filters": [{"field": "record_id", "op": "eq", "value": "fixture-p2000-001"}],
+            "limit": 1,
+        },
+        bundle,
+    )
+    _handle, origin_rows = executor.query.load(source_origin.handle_id)
+    origin_location = origin_rows[0]["location"]
+    monkeypatch.setattr(
+        executor.geocoding,
+        "resolve",
+        AsyncMock(
+            return_value={
+                "matches": [
+                    {
+                        "place_id": "fixture-place",
+                        "display_label": "Varsseveld, Nederland",
+                        "location": {
+                            "lat": origin_location["latitude"],
+                            "lng": origin_location["longitude"],
+                        },
+                    }
+                ]
+            }
+        ),
+    )
+
+    response = await executor.execute(
+        "data_batch",
+        ToolRequest(
+            request_id="geocoded-cross-source-radius",
+            session_policy_version=executor.policy()["version"],
+            payload={
+                "operations": [
+                    {
+                        "operation": "query_nearby",
+                        "stream": "rws_water",
+                        "origin_text": "Varsseveld",
+                        "radius_m": 10_000,
+                        "limit": 10,
+                        "save_as": "water_nearby",
+                    }
+                ]
+            },
+        ),
+    )
+
+    assert response.ok and isinstance(response.result, dict)
+    result = response.result["results"][0]
+    assert result["row_count"] == 1
+    assert all(row["distance_m"] <= 10_000 for row in result["preview"])
+    assert all(row["distance_origin_record_id"].startswith("locres_") for row in result["preview"])
 
 
 async def test_dashboard_batch_uses_top_level_handle_when_model_emits_empty_binding(

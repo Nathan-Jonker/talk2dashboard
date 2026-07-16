@@ -85,11 +85,14 @@ and persisted together after all fetches settle. Visible dashboard bindings are
 deduplicated by logical query and materialized concurrently during a refresh.
 
 Cross-source proximity questions use `query_nearby` inside that same
-`data_batch`. An event or measurement handle is the immutable origin and any of
-P2000, NDW, station-linked NS disruptions, KNMI, RWS water or Luchtmeetnet can
-be the target. Distances are calculated locally with haversine and capped at ten
-kilometres; Google is only needed to resolve free-text places or to find external
-facilities through Places.
+`data_batch`. An event or measurement handle is the immutable origin when it
+contains coordinates. For P2000 records that only contain an address or place,
+`query_nearby` accepts `origin_text` and uses a fifteen-minute Google Geocoding
+resolution without turning it into canonical source data. Any of P2000, NDW,
+station-linked NS disruptions, KNMI, RWS water or Luchtmeetnet can be the target.
+Distances are calculated locally with haversine and capped at twenty-five kilometres.
+An unfiltered target query is never a valid fallback for a radius request;
+Google Places remains limited to external facilities.
 
 The acceptance suite creates temporary ElevenLabs tool-call tests and deletes
 them after the run. Forty-two cases cover all seven sources, all six public tools,
@@ -175,7 +178,7 @@ Open [http://127.0.0.1:8001](http://127.0.0.1:8001). This route deliberately ign
 1. “Welke bronnen zijn actueel en welke lopen achter?”
 2. “Maak een ranglijst van de tien hoogste actuele windstoten en onderbouw die met de bronactualiteit.”
 3. “Bouw een incidentbeeld rond Moerdijk met P2000 en verkeersdata.”
-4. Klik bij een kaartmarker of melding op **Als focus gebruiken** en vraag: “Welke weer-, lucht-, water-, verkeer- en spoorrecords liggen binnen tien kilometer van dit punt?”
+4. Klik bij een kaartmarker of melding op **Als focus gebruiken** en vraag: “Welke weer-, lucht-, water-, verkeer- en spoorrecords liggen binnen vijfentwintig kilometer van dit punt?”
 5. “Welke ziekenhuizen en scholen liggen binnen vijf kilometer van deze focus?”
 6. Enable web search in the info drawer, then ask: “Zoek publieke achtergrondinformatie en houd dit los van de operationele bronnen.”
 7. “Maak een screenshot van het hele dashboard en controleer de layout.”
@@ -203,7 +206,7 @@ The operator-facing capability contracts are also machine-readable:
 - Dashboard batches are atomic and version-checked.
 - The browser injects the current dashboard version into `dashboard_batch` and retries one version conflict without an agent-side inspection round.
 - Web search is disabled by default and only a user-owned endpoint can enable it.
-- Nearby Places uses only a location in a trusted handle or `LocationRef`; radius is capped at five kilometres.
+- Nearby Places uses a trusted handle, `LocationRef` or temporary geocoded origin; radius is capped at twenty-five kilometres and results at fifteen.
 - Google Geocoding output is stored only in a dedicated fifteen-minute policy store. It never becomes canonical geometry or a generic data handle; maintenance deletes expired resolutions.
 - Browser sessions call `endSession` on Stop, Stop all, timeout, page hide and component cleanup. Stop all also aborts pending client tools and pauses source refresh until the user explicitly enables automatic refresh again.
 - Dashboard configurations remain `pending` until the real browser confirms matching version, bundle, handles, panels, maps and paint. Screenshot browsers set only a local readiness marker and never mutate persisted render state.

@@ -18,7 +18,7 @@ from talk2dashboard.storage.models import DataHandleRow, NormalizedRecordRow, So
 
 EVENT_STREAM_IDS = frozenset({"ndw_incidents", "p2000", "ns_disruptions", "nos_rss"})
 MEASUREMENT_STREAM_IDS = frozenset({"knmi_observations", "rws_water", "luchtmeetnet"})
-MAX_CROSS_SOURCE_RADIUS_M = 10_000
+MAX_CROSS_SOURCE_RADIUS_M = 25_000
 
 
 def canonical_hash(value: Any, prefix: str = "qry") -> str:
@@ -73,7 +73,11 @@ class QueryEngine:
         return list(latest_by_record.values())
 
     def prepare(
-        self, query_spec: dict[str, Any], bundle_version: str | None = None
+        self,
+        query_spec: dict[str, Any],
+        bundle_version: str | None = None,
+        *,
+        origin_location: dict[str, Any] | None = None,
     ) -> tuple[HandleKind, dict[str, Any], list[dict[str, Any]], str]:
         """Run the read-only query phase without persisting a handle.
 
@@ -93,7 +97,29 @@ class QueryEngine:
                 if normalized.get("operation") == "baseline"
                 else self._rows_for_bundle(bundle_version)
             )
-        rows = self._filter(source_rows, normalized)
+        external_spatial_filters = None
+        if normalized.get("operation") == "query_nearby" and normalized.get("origin_resolution_id"):
+            if origin_location is None:
+                raise ValueError(
+                    "query_nearby with origin_resolution_id requires an active location resolution"
+                )
+            external_spatial_filters = [
+                (
+                    int(normalized.get("radius_m", MAX_CROSS_SOURCE_RADIUS_M)),
+                    [
+                        {
+                            "record_id": str(normalized["origin_resolution_id"]),
+                            "title": str(origin_location.get("label") or "Afgeleide locatie"),
+                            "location": {
+                                "latitude": float(origin_location["latitude"]),
+                                "longitude": float(origin_location["longitude"]),
+                                "label": str(origin_location.get("label") or "Afgeleide locatie"),
+                            },
+                        }
+                    ],
+                )
+            ]
+        rows = self._filter(source_rows, normalized, external_spatial_filters)
         operation = normalized.get("operation", "query")
         kind: HandleKind = "events" if normalized.get("record_kind") == "event" else "series"
         if operation == "aggregate":
@@ -244,6 +270,7 @@ class QueryEngine:
             "lag",
             "method",
             "origin_handle",
+            "origin_resolution_id",
             "origin_record_id",
             "radius_m",
         }
@@ -272,20 +299,24 @@ class QueryEngine:
             else:
                 raise ValueError(f"query_nearby does not support target stream: {stream}")
             origin_handle = normalized.get("origin_handle")
-            if not origin_handle:
-                raise ValueError("query_nearby requires origin_handle")
+            origin_resolution_id = normalized.get("origin_resolution_id")
+            if bool(origin_handle) == bool(origin_resolution_id):
+                raise ValueError(
+                    "query_nearby requires exactly one of origin_handle or origin_resolution_id"
+                )
             radius_m = int(normalized.get("radius_m", MAX_CROSS_SOURCE_RADIUS_M))
             if not 1 <= radius_m <= MAX_CROSS_SOURCE_RADIUS_M:
-                raise ValueError("radius_m must be between 1 and 10000")
-            spatial_filter: dict[str, Any] = {
-                "op": "within_radius_handle",
-                "field": "location",
-                "handle_id": str(origin_handle),
-                "radius_m": radius_m,
-            }
-            if normalized.get("origin_record_id"):
-                spatial_filter["origin_record_id"] = str(normalized["origin_record_id"])
-            normalized["filters"] = [*(normalized.get("filters") or []), spatial_filter]
+                raise ValueError("radius_m must be between 1 and 25000")
+            if origin_handle:
+                spatial_filter: dict[str, Any] = {
+                    "op": "within_radius_handle",
+                    "field": "location",
+                    "handle_id": str(origin_handle),
+                    "radius_m": radius_m,
+                }
+                if normalized.get("origin_record_id"):
+                    spatial_filter["origin_record_id"] = str(normalized["origin_record_id"])
+                normalized["filters"] = [*(normalized.get("filters") or []), spatial_filter]
             normalized.setdefault("sort", "distance_m")
             normalized.setdefault("order", "asc")
         normalized.setdefault("limit", 500)
@@ -293,7 +324,12 @@ class QueryEngine:
         parse_window(normalized.get("window"))
         return normalized
 
-    def _filter(self, rows: list[dict[str, Any]], query: dict[str, Any]) -> list[dict[str, Any]]:
+    def _filter(
+        self,
+        rows: list[dict[str, Any]],
+        query: dict[str, Any],
+        external_spatial_filters: list[tuple[int, list[dict[str, Any]]]] | None = None,
+    ) -> list[dict[str, Any]]:
         streams = set(query.get("streams") or ([query["stream"]] if query.get("stream") else []))
         metrics = set(query.get("metrics") or ([query["metric"]] if query.get("metric") else []))
         categories = set(
@@ -301,7 +337,10 @@ class QueryEngine:
         )
         window = parse_window(query.get("window"))
         filters = query.get("filters") or []
-        spatial_filters = self._prepare_spatial_filters(filters)
+        spatial_filters = [
+            *self._prepare_spatial_filters(filters),
+            *(external_spatial_filters or []),
+        ]
         scalar_filters = [item for item in filters if item.get("op") != "within_radius_handle"]
         result: list[dict[str, Any]] = []
         for row in rows:
@@ -402,7 +441,7 @@ class QueryEngine:
                 raise ValueError("within_radius_handle requires handle_id")
             radius_m = int(item.get("radius_m", 5000))
             if not 1 <= radius_m <= MAX_CROSS_SOURCE_RADIUS_M:
-                raise ValueError("radius_m must be between 1 and 10000")
+                raise ValueError("radius_m must be between 1 and 25000")
             _handle, origin_rows = self.load(handle_id)
             origin_record_id = item.get("origin_record_id")
             if origin_record_id:
@@ -429,10 +468,7 @@ class QueryEngine:
             return False
         for radius_m, origins in spatial_filters:
             nearest = min(
-                (
-                    (self._distance_m(location, origin["location"]), origin)
-                    for origin in origins
-                ),
+                ((self._distance_m(location, origin["location"]), origin) for origin in origins),
                 key=lambda item: item[0],
             )
             distance_m, origin = nearest

@@ -52,8 +52,8 @@ def _filter_schema() -> dict[str, Any]:
             "radius_m": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 10000,
-                "description": "Straal in meters, maximaal tien kilometer.",
+                "maximum": 25000,
+                "description": "Straal in meters, maximaal vijfentwintig kilometer.",
             },
         },
         "required": ["field", "op"],
@@ -154,6 +154,14 @@ def _data_operation_schema() -> dict[str, Any]:
                 "type": "string",
                 "description": "Origin-handle of @alias voor query_nearby.",
             },
+            "origin_resolution_id": {
+                "type": "string",
+                "description": "Tijdelijke locres_-ID of @alias voor een gegeocodeerde oorsprong.",
+            },
+            "origin_text": {
+                "type": "string",
+                "description": "Adres of plaats voor een tijdelijke gegeocodeerde query_nearby-oorsprong.",
+            },
             "origin_record_id": {
                 "type": "string",
                 "description": "Optioneel specifiek middelpuntrecord uit de origin-handle.",
@@ -161,8 +169,8 @@ def _data_operation_schema() -> dict[str, Any]:
             "radius_m": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 10000,
-                "description": "Zoekstraal voor query_nearby, maximaal tien kilometer.",
+                "maximum": 25000,
+                "description": "Zoekstraal voor query_nearby, maximaal vijfentwintig kilometer.",
             },
             "series_a": {"type": "string", "description": "Metric of handle voor correlatie."},
             "series_b": {"type": "string", "description": "Metric of handle voor correlatie."},
@@ -365,7 +373,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "nearby_places",
         "display_name": "Voorzieningen in de buurt",
         "category": "Externe context",
-        "description": "Zoek maximaal twintig Google Places binnen maximaal vijf kilometer. Geef voor een gewone plaatsnaam direct origin_text op; geef een locres_-resultaat uitsluitend als resolution_id. Het resultaat bevat afstand_m en nearest. Gebruik external_search niet als fallback.",
+        "description": "Zoek maximaal vijftien Google Places binnen maximaal vijfentwintig kilometer. Geef voor een gewone plaatsnaam direct origin_text op; geef een locres_-resultaat uitsluitend als resolution_id. Het resultaat bevat afstand_m en nearest. Gebruik external_search niet als fallback.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -383,12 +391,12 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "uniqueItems": True,
                     "description": "Gebruik uitsluitend de opgesomde Google Place-hoofdtypen.",
                 },
-                "radius_m": {"type": "integer"},
-                "max_results": {"type": "integer"},
+                "radius_m": {"type": "integer", "minimum": 1, "maximum": 25000},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 15},
                 "rank": {"type": "string", "enum": ["distance", "popularity"]},
                 "fields_profile": {"type": "string", "enum": ["minimal", "contact", "operational"]},
             },
-            "required": ["included_types", "radius_m"],
+            "required": ["included_types"],
         },
     },
     {

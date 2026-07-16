@@ -42,14 +42,16 @@ toont een stale-waarschuwing wanneer de feed niet vers genoeg is.
 Selecteer eerst een concrete P2000- of NDW-marker via **Als focus gebruiken**.
 De focuschip in de voice-overlay bevestigt welk immutable bronrecord actief is.
 
-> Toon rond deze melding binnen tien kilometer ook KNMI-metingen,
+> Toon rond deze melding binnen vijfentwintig kilometer ook KNMI-metingen,
 > Luchtmeetnetpunten, RWS-watermeetpunten en spoorstoringen. Zoek daarna binnen
 > vijf kilometer ziekenhuizen, scholen, brandweerkazernes en politiebureaus,
 > gesorteerd op afstand. Herschik het bestaande beeld met deze lokale
 > kaartcontext en houd maximaal twaalf panelen.
 
-Verwacht: eerst een `data_batch` met een exacte origin-query en vier
-`query_nearby`-operaties met `radius_m=10000`. Daarna gebruikt de agent
+Verwacht: bij broncoordinaten eerst een exacte origin-query en daarna vier
+`query_nearby`-operaties met `radius_m=25000`. Heeft een P2000-record alleen een
+adres of plaats, dan gebruiken die vier operaties direct dezelfde tijdelijke
+`origin_text`; een landelijke query is geen fallback. Daarna gebruikt de agent
 `nearby_places` met de geselecteerde locatie, `radius_m=5000`, de vier
 toegestane place-types en `rank=distance`, gevolgd door `dashboard_batch`. De
 agent gebruikt hiervoor geen websearch, inspecteert bekende schema's niet en
@@ -86,7 +88,7 @@ renderstatus niet veranderen.
 | Data-integriteit | Panelen binden aan server-issued handles; de agent injecteert geen waarden |
 | Bronzekerheid | Stale, signaal- en externe-contextlabels blijven zichtbaar |
 | Dynamische presentatie | Een atomaire Control Room-compositie met maximaal twaalf panelen |
-| Lokale besluitvorming | Een geselecteerd bronrecord stuurt kruisbrononderzoek tot tien kilometer en begrensde Places-resultaten tot vijf kilometer |
+| Lokale besluitvorming | Een geselecteerd bronrecord stuurt kruisbrononderzoek en begrensde Places-resultaten tot vijfentwintig kilometer |
 | Auditability | Toolaudit, dashboardversie en screenshot/snapshot zijn reproduceerbaar |
 
 ## Slagingscriteria

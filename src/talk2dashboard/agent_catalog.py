@@ -98,7 +98,7 @@ DIRECT_ACTION_RECIPES = """Directe recepten:
 - Trend: query_measurements met stream+metric+window, sort=observed_at en order=asc; gebruik daarna alleen timeseries wanneer panel_compatibility dit toestaat. Twee globale timestamps zijn niet genoeg: minstens een station-metriekcombinatie moet twee meetmomenten bevatten. Filter bij meer dan acht reeksen eerst op locatie. Kies anders een ranglijst, kaart of geaggregeerde KPI.
 - Meldingenlijst: query_events met streams/window/filter; daarna incident_timeline of event_table. Gebruik bindings=[...] wanneer onafhankelijke eventhandles samen in een feed horen.
 - Kaart: query_events of query_measurements met locatie; gebruik standaard map_3d_google met latitude=location.latitude en longitude=location.longitude. Combineer meerdere geo-handles in een kaart via bindings=[...], zodat iedere bron een eigen kleur, legenda en herkomst houdt. Gebruik map_2d alleen als de gebruiker expliciet een platte kaart vraagt of Google 3D niet beschikbaar is.
-- Bronnen rond een bronrecord: woorden als 'binnen tien kilometer', 'in de buurt van deze melding/meting' of 'rond dit bronrecord' vereisen binnen dezelfde data_batch eerst query_events/query_measurements met save_as=origin en daarna voor IEDERE doelbron query_nearby met origin_handle=@origin en radius_m. Gebruik nooit een gewone query_events/query_measurements als vervanging voor een doelbron, want die past geen afstandsfilter toe. Exact patroon: operations=[{operation:query_events,stream:p2000,limit:1,save_as:origin},{operation:query_nearby,stream:rws_water,origin_handle:@origin,radius_m:10000,save_as:water_nearby}]. Dit werkt in beide richtingen tussen P2000, NDW, NS, KNMI, RWS-water en Luchtmeetnet. Gebruik hiervoor geen Google of nearby_places. Combineer de resulterende handles als bindings in een kaart; ieder doelrecord bevat distance_m en het gebruikte origin-record.
+- Bronnen rond een bronrecord: woorden als 'binnen vijfentwintig kilometer', 'in de buurt van deze melding/meting' of 'rond dit bronrecord' vereisen query_nearby voor IEDERE doelbron. Heeft het origin-record coordinaten, query het eerst met save_as=origin en gebruik origin_handle=@origin. Ontbreken coordinaten maar bevat de geselecteerde P2000-melding een adres of plaats, gebruik dan direct origin_text met titel plus omschrijving in query_nearby. Voorbeeld: {operation:query_nearby,stream:rws_water,origin_text:'Lupinestraat Dedemsvaart',radius_m:25000,save_as:water_nearby}. Gebruik nooit een gewone query_events/query_measurements als fallback: die is landelijk en dus niet ruimtelijk gefilterd. Dit werkt tussen P2000, NDW, NS, KNMI, RWS-water en Luchtmeetnet. nearby_places is uitsluitend voor voorzieningen. Ieder doelrecord moet distance_m bevatten en binnen radius_m vallen.
 - Telling/vergelijking: aggregate met group_by stream_id/category/metric en fn count/mean/max/p95; gebruik kpi alleen voor één waarde per binding, comparison voor samen minstens twee waarden en ranking voor vergelijkbare numerieke groepen. Bind meerdere bronnen met bindings=[...] in hetzelfde coherente panel.
 - Kaartgeschiktheid: gebruik map_2d of map_3d_google alleen wanneer panel_compatibility een kaart aanbeveelt. Records zonder coördinaten blijven beschikbaar als feed maar mogen niet tot een lege kaart leiden.
 - Onderbouwing: gebruik preview, freshness en source_status uit hetzelfde data_batch-resultaat; inspecteer daarvoor niet apart.
@@ -190,10 +190,10 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
                 "description": "eq, in, gte, lte, between, contains of within_radius_handle",
             },
             {
-                "name": "origin_handle / origin_record_id / radius_m",
+                "name": "origin_handle / origin_text / origin_resolution_id / radius_m",
                 "type": "ruimtelijke koppeling",
                 "required": False,
-                "description": "Filter een doelstream rond een bronrecord; maximaal 10000 meter",
+                "description": "Filter een doelstream rond broncoordinaten of een tijdelijk gegeocodeerd adres; maximaal 25000 meter",
             },
             {
                 "name": "sort / order / limit",
@@ -233,7 +233,7 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
             "Maak een ranglijst van actuele windstoten.",
             "Vergelijk waterstanden per meetpunt.",
             "Toon actieve wegmeldingen van het laatste uur.",
-            "Toon binnen tien kilometer van deze P2000-melding ook lucht-, water-, weer- en spoorpunten.",
+            "Toon binnen vijfentwintig kilometer van deze P2000-melding ook lucht-, water-, weer- en spoorpunten.",
             "Selecteer een kaartpunt en vraag welke bronmetingen en verstoringen er rondom liggen.",
         ],
     },
@@ -330,7 +330,7 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
                 "name": "radius_m",
                 "type": "meter",
                 "required": False,
-                "description": "Zoekstraal, maximaal vijfduizend meter",
+                "description": "Zoekstraal, standaard en maximaal vijfentwintigduizend meter",
             },
             {
                 "name": "max_results / rank",
@@ -340,13 +340,13 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
             },
         ],
         "outputs": [
-            "Places-handle met maximaal twintig locaties",
+            "Places-handle met maximaal vijftien locaties",
             "Dichtstbijzijnde locatie en afstand",
             "Google-attributie en tijdelijke resolutiemetadata",
         ],
         "constraints": [
             "Alleen vaste Place-types",
-            "Maximaal vijf kilometer",
+            "Maximaal vijfentwintig kilometer",
             "Resultaten zijn externe context en geen bronmeting",
         ],
         "examples": [
@@ -556,7 +556,14 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
             "location.longitude",
             "source_ref",
         ],
-        "possibilities": ["actuele ranglijst", "kaart", "KPI", "aggregatie", "vergelijking", "andere bronnen binnen 10 km"],
+        "possibilities": [
+            "actuele ranglijst",
+            "kaart",
+            "KPI",
+            "aggregatie",
+            "vergelijking",
+            "andere bronnen binnen 10 km",
+        ],
         "examples": [
             "Rangschik de actuele windstoten van hoog naar laag.",
             "Toon de actuele temperatuur per station.",
@@ -583,7 +590,14 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
             "location.longitude",
             "source_ref",
         ],
-        "possibilities": ["actuele ranglijst", "kaart", "KPI", "verschil", "aggregatie", "andere bronnen binnen 10 km"],
+        "possibilities": [
+            "actuele ranglijst",
+            "kaart",
+            "KPI",
+            "verschil",
+            "aggregatie",
+            "andere bronnen binnen 10 km",
+        ],
         "examples": [
             "Toon de hoogste waterstanden van vandaag.",
             "Vergelijk de waterstand bij twee meetpunten.",
@@ -618,7 +632,15 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
             "location.longitude",
             "source_ref",
         ],
-        "possibilities": ["tijdreeks", "ranglijst", "kaart", "KPI", "aggregatie", "vergelijking", "andere bronnen binnen 10 km"],
+        "possibilities": [
+            "tijdreeks",
+            "ranglijst",
+            "kaart",
+            "KPI",
+            "aggregatie",
+            "vergelijking",
+            "andere bronnen binnen 10 km",
+        ],
         "examples": [
             "Toon de hoogste NO2-metingen van het laatste uur.",
             "Vergelijk PM10 en PM2,5 per station.",
@@ -647,7 +669,15 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
             "attributes",
             "source_ref",
         ],
-        "possibilities": ["live feed", "kaart", "filter", "telling", "tijdlijn", "incidentanalyse", "andere bronnen binnen 10 km"],
+        "possibilities": [
+            "live feed",
+            "kaart",
+            "filter",
+            "telling",
+            "tijdlijn",
+            "incidentanalyse",
+            "andere bronnen binnen 10 km",
+        ],
         "examples": [
             "Toon actieve wegafsluitingen rond Utrecht.",
             "Hoeveel wegmeldingen zijn er het laatste uur?",
@@ -709,7 +739,14 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
             "attributes",
             "source_ref",
         ],
-        "possibilities": ["live feed", "filter", "telling", "tijdlijn", "kaart", "andere bronnen binnen 10 km"],
+        "possibilities": [
+            "live feed",
+            "filter",
+            "telling",
+            "tijdlijn",
+            "kaart",
+            "andere bronnen binnen 10 km",
+        ],
         "examples": [
             "Welke actuele storingen zijn er rond Utrecht Centraal?",
             "Toon alleen geplande werkzaamheden.",

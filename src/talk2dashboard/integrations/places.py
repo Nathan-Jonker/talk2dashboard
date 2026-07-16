@@ -71,10 +71,10 @@ class PlacesClient:
         rank: str,
         fields_profile: str,
     ) -> dict:
-        if not 0 < radius_m <= 5000:
-            raise ValueError("radius_m must be between 1 and 5000")
-        if not 1 <= max_results <= 20:
-            raise ValueError("max_results must be between 1 and 20")
+        if not 0 < radius_m <= 25_000:
+            raise ValueError("radius_m must be between 1 and 25000")
+        if not 1 <= max_results <= 15:
+            raise ValueError("max_results must be between 1 and 15")
         unknown_types = sorted(set(included_types) - self.ALLOWED_TYPES)
         if unknown_types:
             raise ValueError(f"unsupported Place types: {', '.join(unknown_types)}")

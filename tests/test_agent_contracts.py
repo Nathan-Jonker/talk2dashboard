@@ -85,7 +85,9 @@ def test_agent_has_compact_routing_catalog_and_explicit_batch_schemas() -> None:
     )
     assert "enum" not in data_item["properties"]["metric"]
     assert "query_nearby" in data_item["properties"]["operation"]["enum"]
-    assert data_item["properties"]["radius_m"]["maximum"] == 10_000
+    assert "origin_text" in data_item["properties"]
+    assert "origin_resolution_id" in data_item["properties"]
+    assert data_item["properties"]["radius_m"]["maximum"] == 25_000
     assert "query_nearby" in SYSTEM_PROMPT
     dashboard = definitions["dashboard_batch"]["parameters"]
     assert "expected_version" not in dashboard["required"]
