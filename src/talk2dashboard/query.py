@@ -7,18 +7,25 @@ from datetime import UTC, datetime, timedelta
 from statistics import mean, median, pstdev
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from talk2dashboard.deterministic import haversine_m, pearson
 from talk2dashboard.domain import DataHandle, HandleKind
 from talk2dashboard.errors import InsufficientBaselineError, InsufficientSeriesError
 from talk2dashboard.storage.database import Database
-from talk2dashboard.storage.models import DataHandleRow, NormalizedRecordRow, SourceBundleRow
+from talk2dashboard.storage.models import (
+    DataHandleRow,
+    NormalizedRecordRow,
+    SourceBundleRow,
+    SourceSnapshotRow,
+)
 
 EVENT_STREAM_IDS = frozenset({"ndw_incidents", "p2000", "ns_disruptions", "nos_rss"})
 MEASUREMENT_STREAM_IDS = frozenset({"knmi_observations", "rws_water", "luchtmeetnet"})
 MAX_CROSS_SOURCE_RADIUS_M = 25_000
+MAX_QUERY_HISTORY = timedelta(days=2)
+MAX_QUERY_HISTORY_ISO = "P2D"
 
 
 def canonical_hash(value: Any, prefix: str = "qry") -> str:
@@ -62,15 +69,70 @@ class QueryEngine:
             ).all()
             return [json.loads(record.payload_json) for record in records]
 
-    def _rows_for_history(self) -> list[dict[str, Any]]:
+    def _rows_for_history(self, query: dict[str, Any]) -> list[dict[str, Any]]:
+        streams = set(
+            query.get("streams") or ([query["stream"]] if query.get("stream") else [])
+        )
+        metrics = set(
+            query.get("metrics") or ([query["metric"]] if query.get("metric") else [])
+        )
+        categories = set(
+            query.get("categories")
+            or ([query["category"]] if query.get("category") else [])
+        )
+        record_kind = query.get("record_kind")
+        window = parse_window(query.get("window"))
         with self.database.session() as session:
-            records = session.scalars(
-                select(NormalizedRecordRow).order_by(NormalizedRecordRow.observed_at.asc())
-            ).all()
-        latest_by_record: dict[str, dict[str, Any]] = {}
+            conditions = []
+            if streams:
+                conditions.append(NormalizedRecordRow.stream_id.in_(streams))
+            if record_kind:
+                conditions.append(NormalizedRecordRow.record_kind == record_kind)
+            if metrics:
+                conditions.append(
+                    func.json_extract(NormalizedRecordRow.payload_json, "$.metric").in_(metrics)
+                )
+            if categories:
+                conditions.append(
+                    func.json_extract(NormalizedRecordRow.payload_json, "$.category").in_(
+                        categories
+                    )
+                )
+
+            if window:
+                anchor_statement = select(func.max(NormalizedRecordRow.observed_at))
+                if conditions:
+                    anchor_statement = anchor_statement.where(*conditions)
+                anchor_value = session.scalar(anchor_statement)
+                if anchor_value:
+                    cutoff = (self._as_datetime(anchor_value) - window).isoformat()
+                    conditions.append(NormalizedRecordRow.observed_at >= cutoff)
+
+            statement = (
+                select(NormalizedRecordRow)
+                .join(
+                    SourceSnapshotRow,
+                    SourceSnapshotRow.snapshot_id == NormalizedRecordRow.snapshot_id,
+                )
+                .order_by(
+                    NormalizedRecordRow.observed_at.asc(),
+                    SourceSnapshotRow.ingested_at.asc(),
+                )
+            )
+            if conditions:
+                statement = statement.where(*conditions)
+            records = session.scalars(statement).all()
+
+        # A live adapter can persist the same upstream observation in multiple
+        # snapshots. Keep one logical observation while preserving changed values
+        # and later timestamps as a genuine local time series.
+        observations: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         for record in records:
-            latest_by_record[record.record_id] = json.loads(record.payload_json)
-        return list(latest_by_record.values())
+            payload = json.loads(record.payload_json)
+            discriminator = str(payload.get("metric") or payload.get("category") or "")
+            key = (record.stream_id, record.record_id, record.observed_at, discriminator)
+            observations[key] = payload
+        return list(observations.values())
 
     def prepare(
         self,
@@ -92,9 +154,12 @@ class QueryEngine:
             bundle_version = bundle_version or input_handle.source_bundle_version
         else:
             bundle_version = bundle_version or self.latest_bundle()
+            use_history = bool(normalized.get("window")) or normalized.get(
+                "operation"
+            ) == "baseline"
             source_rows = (
-                self._rows_for_history()
-                if normalized.get("operation") == "baseline"
+                self._rows_for_history(normalized)
+                if use_history
                 else self._rows_for_bundle(bundle_version)
             )
         external_spatial_filters = None
@@ -321,7 +386,13 @@ class QueryEngine:
             normalized.setdefault("order", "asc")
         normalized.setdefault("limit", 500)
         normalized["limit"] = max(1, min(int(normalized["limit"]), 2000))
-        parse_window(normalized.get("window"))
+        window = parse_window(normalized.get("window"))
+        if window and normalized.get("operation") != "baseline" and window > MAX_QUERY_HISTORY:
+            raise ValueError(
+                f"window may not exceed {MAX_QUERY_HISTORY_ISO}; use at most two days"
+            )
+        if normalized.get("since") or normalized.get("until"):
+            raise ValueError("Use a relative window up to P2D instead of since/until")
         return normalized
 
     def _filter(

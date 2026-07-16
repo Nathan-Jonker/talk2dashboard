@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from talk2dashboard.domain import MeasurementRecord, SourceRef, TrustTier
+from talk2dashboard.domain import EventRecord, MeasurementRecord, SourceRef, TrustTier
 from talk2dashboard.errors import InsufficientBaselineError
 from talk2dashboard.sources.base import AdapterResult
 from talk2dashboard.storage.models import DataHandleRow
@@ -299,6 +299,177 @@ async def test_source_snapshot_deduplicates_repeated_record_ids(services):
     )
 
     assert handle.row_count == 1
+
+
+async def test_explicit_window_reads_deduplicated_local_measurement_history(services):
+    _settings, _database, sources, query, _dashboard = services
+    now = datetime.now(UTC)
+
+    def measurement(observed_at: datetime, value: float) -> MeasurementRecord:
+        source_ref = SourceRef(
+            stream_id="rws_water",
+            record_id="water-station-1",
+            source_url="https://example.invalid/water",
+            owner="Rijkswaterstaat test",
+            trust_tier=TrustTier.OFFICIAL_MEASUREMENT,
+            observed_at=observed_at,
+            ingested_at=now,
+        )
+        return MeasurementRecord(
+            record_id="water-station-1",
+            stream_id="rws_water",
+            metric="water_level_cm",
+            value=value,
+            unit="cm",
+            observed_at=observed_at,
+            ingested_at=now,
+            source_ref=source_ref,
+        )
+
+    older = measurement(now - timedelta(hours=3), 110.0)
+    newer = measurement(now, 114.0)
+    sources.persist_results(
+        [
+            AdapterResult(
+                stream_id="rws_water",
+                provider="contract-test",
+                source_url="https://example.invalid/water",
+                raw=b"water-history-older",
+                observed_at=older.observed_at,
+                measurements=[older],
+            )
+        ]
+    )
+    latest_bundle = sources.persist_results(
+        [
+            AdapterResult(
+                stream_id="rws_water",
+                provider="contract-test",
+                source_url="https://example.invalid/water",
+                raw=b"water-history-newer",
+                observed_at=newer.observed_at,
+                measurements=[newer],
+            )
+        ]
+    )
+    # Persisting the same upstream observation again must not add a third point.
+    latest_bundle = sources.persist_results(
+        [
+            AdapterResult(
+                stream_id="rws_water",
+                provider="contract-test",
+                source_url="https://example.invalid/water",
+                raw=b"water-history-newer-repeat",
+                observed_at=newer.observed_at,
+                measurements=[newer],
+            )
+        ]
+    )
+
+    current = query.execute(
+        {"operation": "query_measurements", "stream": "rws_water"}, latest_bundle
+    )
+    history = query.execute(
+        {
+            "operation": "query_measurements",
+            "stream": "rws_water",
+            "metric": "water_level_cm",
+            "window": "P2D",
+            "sort": "observed_at",
+            "order": "asc",
+        },
+        latest_bundle,
+    )
+
+    assert current.row_count == 1
+    assert [item["value"] for item in history.preview] == [110.0, 114.0]
+
+
+async def test_explicit_window_keeps_events_that_left_the_latest_snapshot(services):
+    _settings, _database, sources, query, _dashboard = services
+    now = datetime.now(UTC)
+
+    def event(record_id: str, observed_at: datetime) -> EventRecord:
+        source_ref = SourceRef(
+            stream_id="ndw_incidents",
+            record_id=record_id,
+            source_url="https://example.invalid/ndw",
+            owner="NDW test",
+            trust_tier=TrustTier.OFFICIAL_OPERATIONAL,
+            observed_at=observed_at,
+            ingested_at=now,
+        )
+        return EventRecord(
+            record_id=record_id,
+            stream_id="ndw_incidents",
+            category="road_incident",
+            title=record_id,
+            observed_at=observed_at,
+            ingested_at=now,
+            source_ref=source_ref,
+        )
+
+    older = event("incident-older", now - timedelta(hours=4))
+    newer = event("incident-newer", now)
+    sources.persist_results(
+        [
+            AdapterResult(
+                stream_id="ndw_incidents",
+                provider="contract-test",
+                source_url="https://example.invalid/ndw",
+                raw=b"ndw-history-older",
+                observed_at=older.observed_at,
+                events=[older],
+            )
+        ]
+    )
+    latest_bundle = sources.persist_results(
+        [
+            AdapterResult(
+                stream_id="ndw_incidents",
+                provider="contract-test",
+                source_url="https://example.invalid/ndw",
+                raw=b"ndw-history-newer",
+                observed_at=newer.observed_at,
+                events=[newer],
+            )
+        ]
+    )
+
+    current = query.execute(
+        {"operation": "query_events", "stream": "ndw_incidents"}, latest_bundle
+    )
+    history = query.execute(
+        {
+            "operation": "query_events",
+            "stream": "ndw_incidents",
+            "window": "P2D",
+            "sort": "observed_at",
+            "order": "asc",
+        },
+        latest_bundle,
+    )
+
+    assert [item["record_id"] for item in current.preview] == ["incident-newer"]
+    assert [item["record_id"] for item in history.preview] == [
+        "incident-older",
+        "incident-newer",
+    ]
+
+
+async def test_normal_queries_reject_history_longer_than_two_days(services):
+    _settings, _database, sources, query, _dashboard = services
+    bundle = await sources.initialize_fixture()
+
+    with pytest.raises(ValueError, match="may not exceed P2D"):
+        query.execute(
+            {
+                "operation": "query_measurements",
+                "stream": "rws_water",
+                "window": "P3D",
+            },
+            bundle,
+        )
 
 
 async def test_expired_handle_cannot_be_reused(services):

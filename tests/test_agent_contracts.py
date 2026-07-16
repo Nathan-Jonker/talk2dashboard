@@ -73,7 +73,9 @@ def test_agent_has_compact_routing_catalog_and_explicit_batch_schemas() -> None:
     assert "bevestig in één zin wat zichtbaar is veranderd" in SYSTEM_PROMPT
     assert "Herhaal de vraag niet" in SYSTEM_PROMPT
     assert "kan ik nog ergens mee helpen?" in SYSTEM_PROMPT
-    assert "rws_water levert via DDAPI20 WFS alleen de laatste waarneming" in SYSTEM_PROMPT
+    assert "rws_water levert upstream via DDAPI20 WFS alleen de laatste waarneming" in SYSTEM_PROMPT
+    assert "lokaal maximaal twee dagen historie" in SYSTEM_PROMPT
+    assert "window van maximaal P2D" in SYSTEM_PROMPT
     assert "Volg panel_compatibility" in SYSTEM_PROMPT
     assert "maximaal acht reeksen" in SYSTEM_PROMPT
     assert "stille operatorcontext" in SYSTEM_PROMPT
@@ -88,6 +90,7 @@ def test_agent_has_compact_routing_catalog_and_explicit_batch_schemas() -> None:
     assert "origin_text" in data_item["properties"]
     assert "origin_resolution_id" in data_item["properties"]
     assert data_item["properties"]["radius_m"]["maximum"] == 25_000
+    assert "maximaal twee dagen" in data_item["properties"]["window"]["description"]
     assert "query_nearby" in SYSTEM_PROMPT
     dashboard = definitions["dashboard_batch"]["parameters"]
     assert "expected_version" not in dashboard["required"]

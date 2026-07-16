@@ -36,6 +36,7 @@ class NormalizedRecordRow(Base):
             "record_id",
             "observed_at",
         ),
+        Index("ix_normalized_stream_observed", "stream_id", "observed_at"),
     )
     record_version_id: Mapped[str] = mapped_column(String, primary_key=True)
     record_id: Mapped[str] = mapped_column(String, index=True)

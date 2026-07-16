@@ -606,6 +606,17 @@ class ToolExecutor:
                 "preview": handle.preview,
                 "summary": handle.summary,
                 "freshness": handle.freshness,
+                "history": {
+                    "mode": (
+                        "local_rolling_history"
+                        if query_spec.get("window")
+                        else "current_snapshot"
+                    ),
+                    "requested_window": query_spec.get("window"),
+                    "maximum_window": "P2D",
+                    "oldest": handle.freshness.get("oldest"),
+                    "newest": handle.freshness.get("newest"),
+                },
             }
             _stored_handle, result_rows = self.query.load(handle.handle_id)
             result_item["panel_compatibility"] = compatibility_summary(handle.kind, result_rows)
@@ -620,9 +631,9 @@ class ToolExecutor:
                     in result_item["panel_compatibility"]["recommended_panels"],
                     "requested_window": query_spec.get("window"),
                     "history_mode": (
-                        "current_snapshot"
-                        if query_spec.get("stream") == "rws_water"
-                        else "available_records"
+                        "local_rolling_history"
+                        if query_spec.get("window")
+                        else "current_snapshot"
                     ),
                     "recommended_panel": (
                         "timeseries"

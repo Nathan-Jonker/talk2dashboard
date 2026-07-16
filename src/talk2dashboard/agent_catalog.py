@@ -83,19 +83,19 @@ PANEL_HANDLE_KINDS: dict[str, tuple[str, ...]] = {
 }
 
 STREAM_ROUTING_CATALOG = """Vaste dataroutering (geen inspectie nodig):
-- knmi_observations: metingen; wind_gust_kmh, wind_speed_ms, rainfall_rate_mm_h, air_temperature_c; locatie is meetstation.
-- rws_water: actuele momentopnamen; water_level_cm; locatie is RWS-meetpunt. De WFS-feed levert alleen de laatste waarneming per meetpunt; een groter window maakt geen historische reeks.
-- luchtmeetnet: metingen; bcwb_ug_m3, c10h8_ug_m3, c6h6_ug_m3, c7h8_ug_m3, c8h10_ug_m3, co_ug_m3, fn_ug_m3, h2s_ug_m3, no2_ug_m3, no_ug_m3, nox_ug_m3, o3_ug_m3, pm10_ug_m3, pm25_ug_m3, ps_ug_m3 en so2_ug_m3; locatie is luchtmeetstation.
-- ndw_incidents: events; actuele wegincidenten, files, afsluitingen en maatregelen.
-- p2000: events; hulpverleningssignalen. Behandel als signaal, niet als bevestigd incident.
-- ns_disruptions: events; actuele spoorstoringen en werkzaamheden.
-- nos_rss: events; nieuwscontext. Niet gebruiken als bevestigde operationele bron.
+- knmi_observations: metingen; wind_gust_kmh, wind_speed_ms, rainfall_rate_mm_h, air_temperature_c; locatie is meetstation; lokaal opgebouwde historie tot maximaal twee dagen.
+- rws_water: water_level_cm; locatie is RWS-meetpunt. De WFS-feed levert de laatste waarneming per meetpunt; opeenvolgende lokale snapshots vormen een rolling historie tot maximaal twee dagen.
+- luchtmeetnet: metingen; bcwb_ug_m3, c10h8_ug_m3, c6h6_ug_m3, c7h8_ug_m3, c8h10_ug_m3, co_ug_m3, fn_ug_m3, h2s_ug_m3, no2_ug_m3, no_ug_m3, nox_ug_m3, o3_ug_m3, pm10_ug_m3, pm25_ug_m3, ps_ug_m3 en so2_ug_m3; locatie is luchtmeetstation; historie tot maximaal twee dagen.
+- ndw_incidents: events; wegincidenten, files, afsluitingen en maatregelen; eventhistorie tot maximaal twee dagen.
+- p2000: events; hulpverleningssignalen tot maximaal twee dagen. Behandel als signaal, niet als bevestigd incident.
+- ns_disruptions: events; spoorstoringen en werkzaamheden; eventhistorie tot maximaal twee dagen.
+- nos_rss: events; nieuwscontext uit maximaal twee dagen lokale feedhistorie. Niet gebruiken als bevestigde operationele bron.
 Metingen hebben metric, value, unit, observed_at, location en source_ref. Events hebben category, title, description, severity, status, observed_at, location, attributes en source_ref."""
 
 DIRECT_ACTION_RECIPES = """Directe recepten:
 - Operatorselectie: de browser kan stille context sturen met source_ref, stream, record_id en label. Koppel woorden als 'dit', 'hier', 'deze melding', 'dit meetpunt' en 'deze plek' direct aan dat exacte record. Query het origin-record op stream+record_id en ga zonder inspect_workspace door naar de gevraagde data_batch-operaties. Gebruik nooit een oudere selectie wanneer de context meldt dat deze is gewist.
 - Ranglijst: data_batch query_measurements met bekende stream+metric, sort=value, order=desc, limit; daarna ranking-panel met label=location.label en y=value.
-- Trend: query_measurements met stream+metric+window, sort=observed_at en order=asc; gebruik daarna alleen timeseries wanneer panel_compatibility dit toestaat. Twee globale timestamps zijn niet genoeg: minstens een station-metriekcombinatie moet twee meetmomenten bevatten. Filter bij meer dan acht reeksen eerst op locatie. Kies anders een ranglijst, kaart of geaggregeerde KPI.
+- Trend: query_measurements met stream+metric+window (maximaal P2D), sort=observed_at en order=asc; gebruik daarna alleen timeseries wanneer panel_compatibility dit toestaat. Twee globale timestamps zijn niet genoeg: minstens een station-metriekcombinatie moet twee meetmomenten bevatten. Filter bij meer dan acht reeksen eerst op locatie. Kies anders een ranglijst, kaart of geaggregeerde KPI en benoem hoeveel lokale historie beschikbaar is.
 - Meldingenlijst: query_events met streams/window/filter; daarna incident_timeline of event_table. Gebruik bindings=[...] wanneer onafhankelijke eventhandles samen in een feed horen.
 - Kaart: query_events of query_measurements met locatie; gebruik standaard map_3d_google met latitude=location.latitude en longitude=location.longitude. Combineer meerdere geo-handles in een kaart via bindings=[...], zodat iedere bron een eigen kleur, legenda en herkomst houdt. Gebruik map_2d alleen als de gebruiker expliciet een platte kaart vraagt of Google 3D niet beschikbaar is.
 - Bronnen rond een bronrecord: woorden als 'binnen vijfentwintig kilometer', 'in de buurt van deze melding/meting' of 'rond dit bronrecord' vereisen query_nearby voor IEDERE doelbron. Heeft het origin-record coordinaten, query het eerst met save_as=origin en gebruik origin_handle=@origin. Ontbreken coordinaten maar bevat de geselecteerde P2000-melding een adres of plaats, gebruik dan direct origin_text met titel plus omschrijving in query_nearby. Voorbeeld: {operation:query_nearby,stream:rws_water,origin_text:'Lupinestraat Dedemsvaart',radius_m:25000,save_as:water_nearby}. Gebruik nooit een gewone query_events/query_measurements als fallback: die is landelijk en dus niet ruimtelijk gefilterd. Dit werkt tussen P2000, NDW, NS, KNMI, RWS-water en Luchtmeetnet. nearby_places is uitsluitend voor voorzieningen. Ieder doelrecord moet distance_m bevatten en binnen radius_m vallen.
@@ -181,7 +181,7 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
                 "name": "window",
                 "type": "ISO-duur",
                 "required": False,
-                "description": "Bijvoorbeeld PT60M, PT24H of P14D",
+                "description": "Bijvoorbeeld PT60M, PT24H of P2D; maximaal twee dagen",
             },
             {
                 "name": "filters",
@@ -505,7 +505,7 @@ def _source_query_inputs(
                 "name": "window",
                 "type": "ISO-duur",
                 "required": False,
-                "description": "Bijvoorbeeld PT60M, PT6H, PT24H of P14D.",
+                "description": "Bijvoorbeeld PT60M, PT6H, PT24H of P2D; maximaal twee dagen.",
             },
             {
                 "name": "filters[].field / op / value",
@@ -534,7 +534,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
     "knmi_observations": {
         "display_name": "KNMI-weermetingen",
         "kind": "metingen",
-        "description": "Actuele waarnemingen per KNMI-meetstation.",
+        "description": "Waarnemingen per KNMI-meetstation, met lokaal opgebouwde historie tot twee dagen.",
         "inputs": _source_query_inputs(
             "knmi_observations",
             "metingen",
@@ -558,6 +558,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
         ],
         "possibilities": [
             "actuele ranglijst",
+            "tijdreeks tot twee dagen",
             "kaart",
             "KPI",
             "aggregatie",
@@ -570,14 +571,14 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
         ],
         "limitations": [
             "Stationmetingen zijn niet hetzelfde als een gebiedsgemiddelde.",
-            "De huidige KNMI-adapter levert de nieuwste tienminutensnapshot; deze is geschikt voor stationvergelijking, niet voor een tijdtrend.",
+            "De historie wordt lokaal uit opeenvolgende tienminutensnapshots opgebouwd en kan bij een verse installatie nog kort zijn.",
             "Een actuele meting bewijst geen oorzaak van incidenten.",
         ],
     },
     "rws_water": {
         "display_name": "Rijkswaterstaat Waterdata",
         "kind": "metingen",
-        "description": "Actuele waterstanden van Rijkswaterstaat-meetpunten.",
+        "description": "Waterstanden per Rijkswaterstaat-meetpunt, met lokaal opgebouwde historie tot twee dagen.",
         "inputs": _source_query_inputs("rws_water", "metingen", ("water_level_cm",)),
         "metrics": [{"id": "water_level_cm", "label": "Waterstand", "unit": "cm"}],
         "fields": [
@@ -592,6 +593,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
         ],
         "possibilities": [
             "actuele ranglijst",
+            "tijdreeks tot twee dagen",
             "kaart",
             "KPI",
             "verschil",
@@ -605,13 +607,13 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
         "limitations": [
             "Waarden zijn meetpuntgebonden.",
             "De DDAPI20 WFS-feed bevat alleen de laatste waarneming per meetpunt.",
-            "Een groter queryvenster maakt geen historische reeks; daarvoor is een afzonderlijke historische bronadapter nodig.",
+            "De upstreamfeed is latest-only; historie ontstaat lokaal na opeenvolgende refreshes en is niet retroactief beschikbaar.",
         ],
     },
     "luchtmeetnet": {
         "display_name": "Luchtmeetnet",
         "kind": "metingen",
-        "description": "Actuele concentraties van luchtverontreinigende stoffen per meetstation.",
+        "description": "Concentraties per luchtmeetstation, met beschikbare historie tot twee dagen.",
         "inputs": _source_query_inputs(
             "luchtmeetnet",
             "metingen",
@@ -655,7 +657,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
     "ndw_incidents": {
         "display_name": "NDW-wegmeldingen",
         "kind": "events",
-        "description": "Actuele wegincidenten, files, afsluitingen en verkeersmaatregelen.",
+        "description": "Wegincidenten, files, afsluitingen en maatregelen uit maximaal twee dagen lokale eventhistorie.",
         "inputs": _source_query_inputs("ndw_incidents", "events"),
         "metrics": [],
         "fields": [
@@ -690,7 +692,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
     "p2000": {
         "display_name": "P2000-hulpverleningssignalen",
         "kind": "events",
-        "description": "Live alarmeringssignalen voor Nederlandse hulpdiensten.",
+        "description": "Hulpverleningssignalen uit maximaal twee dagen lokale eventhistorie.",
         "inputs": _source_query_inputs("p2000", "events"),
         "metrics": [],
         "fields": [
@@ -725,7 +727,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
     "ns_disruptions": {
         "display_name": "NS-storingen en werkzaamheden",
         "kind": "events",
-        "description": "Actuele spoorstoringen en geplande werkzaamheden van NS.",
+        "description": "Spoorstoringen en werkzaamheden uit maximaal twee dagen lokale eventhistorie.",
         "inputs": _source_query_inputs("ns_disruptions", "events"),
         "metrics": [],
         "fields": [
@@ -760,7 +762,7 @@ STREAM_CAPABILITIES: dict[str, dict[str, object]] = {
     "nos_rss": {
         "display_name": "NOS-nieuwsfeed",
         "kind": "events",
-        "description": "Recente NOS-koppen en samenvattingen als publieke contextbron.",
+        "description": "NOS-koppen en samenvattingen uit maximaal twee dagen lokale feedhistorie.",
         "inputs": _source_query_inputs("nos_rss", "events"),
         "metrics": [],
         "fields": [

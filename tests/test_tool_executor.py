@@ -458,7 +458,7 @@ async def test_dashboard_batch_uses_top_level_handle_when_model_emits_empty_bind
     assert binding["kind"] == "events"
 
 
-async def test_rws_snapshot_reports_no_timeseries_and_rejects_line_panel(services):
+async def test_rws_short_local_history_reports_no_timeseries_and_rejects_line_panel(services):
     executor = await _executor(services)
     policy = executor.policy()
     data = await executor.execute(
@@ -472,7 +472,7 @@ async def test_rws_snapshot_reports_no_timeseries_and_rejects_line_panel(service
                         "operation": "query_measurements",
                         "stream": "rws_water",
                         "metric": "water_level_cm",
-                        "window": "P14D",
+                        "window": "P2D",
                         "limit": 100,
                         "save_as": "water",
                     }
@@ -489,8 +489,8 @@ async def test_rws_snapshot_reports_no_timeseries_and_rejects_line_panel(service
         "series_with_history": 0,
         "max_points_per_series": 1,
         "supports_timeseries": False,
-        "requested_window": "P14D",
-        "history_mode": "current_snapshot",
+        "requested_window": "P2D",
+        "history_mode": "local_rolling_history",
         "recommended_panel": "ranking_or_map",
     }
 

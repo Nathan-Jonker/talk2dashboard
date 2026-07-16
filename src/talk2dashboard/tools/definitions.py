@@ -105,7 +105,7 @@ def _data_operation_schema() -> dict[str, Any]:
             },
             "window": {
                 "type": "string",
-                "description": "ISO-duur zoals PT60M, PT6H, PT24H of P14D.",
+                "description": "ISO-duur zoals PT60M, PT6H, PT24H of P2D; maximaal twee dagen lokale bronhistorie.",
             },
             "category": {"type": "string", "description": "Exacte eventcategorie."},
             "categories": {

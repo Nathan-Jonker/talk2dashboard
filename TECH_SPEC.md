@@ -691,6 +691,7 @@ De eerste registry bevat:
 - Elke datapanel heeft minimaal een `LogicalDataBinding`.
 - Iedere handle publiceert machine-readable panelcompatibiliteit. De backend valideert cardinaliteit, numerieke velden, unieke labels, coördinaten, metriek-/eenheidshomogeniteit en punten per stationreeks voordat een panelversie wordt opgeslagen.
 - Globaal verschillende timestamps maken nog geen tijdreeks: minstens één vaste station-metriekreeks bevat twee meetmomenten. Meer dan acht stationreeksen vereist eerst een locatie- of groepsfilter.
+- Normale bronqueries zonder `window` lezen alleen de actuele bundle. Een expliciet venster leest gededupliceerde lokale bronhistorie en is in v1 hard begrensd op `P2D`. Dit geldt voor alle zeven streams; een verse installatie heeft pas historie nadat meerdere snapshots zijn opgeslagen.
 - Kaarten zijn alleen geldig bij minimaal één record met broncoördinaten. Niet-lokaliseerbare records blijven in feeds beschikbaar en worden expliciet als weggelaten gerapporteerd.
 - Elk panel toont bron- en freshnessmetadata in footer of evidence drawer.
 - Elk panel toont de actuele materialized handle en source bundle als runtime evidence, niet als bewerkbare panelconfig.
@@ -1546,7 +1547,7 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 - Registreer voor het developer portal en vraag key(s) voor benodigde APIs.
 - Selecteer exacte datasetnamen/versies voor tienminutenobservaties, waarschuwingen en eventueel radar.
 - Default ingestscope is landelijk: alle actieve automatische weerstations uit de tienminutendataset worden geingest, zodat baselines en incidentcontext overal in Nederland werken. Het datavolume blijft klein genoeg voor SQLite binnen `DATA_RETENTION_DAYS`.
-- De huidige v1-adapter materialiseert alleen het nieuwste bestand en dus één landelijk stationmoment. Gebruik dit voor kaart, ranglijst, KPI of aggregatie; claim geen tijdtrend totdat een historische adapter of opgebouwde historie expliciet wordt bevraagd.
+- De adapter materialiseert per refresh het nieuwste landelijke stationmoment. Met een expliciet venster tot `P2D` bevraagt de querylaag de werkelijk opgebouwde lokale snapshots; zonder venster blijft alleen de actuele bundle zichtbaar.
 - `KNMI_STATION_IDS` beperkt de ingest optioneel tot een expliciete stationslijst voor ontwikkeling of quotabeheer; baselines melden dan `INSUFFICIENT_BASELINE` buiten die scope.
 - Gebruik Notification Service/MQTT voor snelle filemeldingen waar nuttig; niet excessief pollen.
 - Bewaar `X-KNMI-Deprecation` en datasetversie in adaptermetrics.
@@ -1556,7 +1557,7 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 - Gebruik de nieuwe `ddapi20` Waterwebservices, niet de klassieke endpoints.
 - Leg locatiecodes, grootheden, procestypes en quality flags vast.
 - Test ongecontroleerde versus gecontroleerde waarden.
-- De v1 WFS-laag `locatiesmetlaatstewaarneming` is expliciet een actuele momentopname: een groter queryvenster maakt geen historische reeks. Een timeseries vereist minimaal twee verschillende meetmomenten uit een afzonderlijke historische adapter of uit werkelijk opgebouwde lokale historie.
+- De v1 WFS-laag `locatiesmetlaatstewaarneming` is upstream een actuele momentopname. Talk2Dashboard bewaart opeenvolgende observaties in de lokale rolling store; een timeseries vereist minimaal twee werkelijk opgeslagen meetmomenten binnen maximaal `P2D`.
 - Sommige inactieve WFS-locaties rapporteren zeer oude waarden als hun laatste waarneming. De adapter verwijdert records die meer dan vierentwintig uur ouder zijn dan de nieuwste waarneming in dezelfde snapshot en rapporteert het verwijderde aantal in snapshotmetadata.
 
 ### NDW

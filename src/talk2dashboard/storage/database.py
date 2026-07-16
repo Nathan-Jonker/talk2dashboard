@@ -44,6 +44,12 @@ class Database:
                     "ON normalized_record_versions (stream_id, record_id, observed_at DESC)"
                 )
             )
+            connection.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_normalized_stream_observed "
+                    "ON normalized_record_versions (stream_id, observed_at DESC)"
+                )
+            )
 
     def _apply_compatibility_columns(self) -> None:
         """Keep local pre-release databases usable while the schema is still evolving."""

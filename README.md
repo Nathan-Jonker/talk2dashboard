@@ -139,23 +139,32 @@ A `correlation` panel can only bind to a real correlation handle. A single
 weather series cannot be presented as evidence that weather caused incidents;
 the assistant must report insufficient paired history instead.
 
-The current `rws_water` adapter uses the DDAPI20 WFS layer
-`locatiesmetlaatstewaarneming`. It therefore exposes one latest observation per
-measurement location, not a historical series. Increasing a query window does
-not synthesize history. Records whose reported "latest" timestamp is more than
-twenty-four hours older than the newest result are discarded as inactive source
-locations. The agent must use a KPI, ranking or map unless a separate historical
-adapter is added.
+All seven fixed streams support a bounded local history query. Without a
+`window`, a query reads only the latest source bundle. With an explicit window
+up to `P2D`, it reads deduplicated observations from the rolling local snapshot
+store. This makes measurements suitable for time series once the same
+station-metric pair has at least two observations, and keeps events that have
+left the latest feed available in a timeline. A fresh installation cannot
+retroactively invent the preceding forty-eight hours; tool results publish the
+actual oldest and newest available observation.
+
+The `rws_water` adapter uses DDAPI20 WFS
+`locatiesmetlaatstewaarneming`, which supplies one latest observation per
+measurement location per refresh. Talk2Dashboard accumulates those observations
+locally for at most two days. Records whose reported latest timestamp is more
+than twenty-four hours older than the newest result are discarded as inactive
+source locations.
 
 Every data handle includes `panel_compatibility`. This profiles numeric values,
 distinct labels, coordinate coverage, metrics, units and points per
 station-metric series. Dashboard mutations reject unsuitable combinations: a
 cross-station snapshot cannot become a time series, mixed metrics cannot become
-one ranking, and a feed without coordinates cannot become an empty map. KNMI is
-currently a latest ten-minute station snapshot. Luchtmeetnet station details are
-resolved and cached so air measurements carry names and coordinates; its short
-latest window only supports a time series after filtering to one metric and no
-more than eight station series.
+one ranking, and a feed without coordinates cannot become an empty map. KNMI,
+RWS Waterdata and Luchtmeetnet snapshots become trends only after local history
+contains repeated observations for the same station and metric. Luchtmeetnet
+station details are resolved and cached so air measurements carry names and
+coordinates; time series still require one metric and no more than eight station
+series.
 
 ### Start
 
