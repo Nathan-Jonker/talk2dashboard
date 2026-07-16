@@ -476,14 +476,19 @@ Een data-update resolveert iedere zichtbare `LogicalDataBinding` opnieuw tegen d
 - De agent krijgt zes tools, gegroepeerd in inspectie, data, presentatie en enrichment.
 - Multi-operation tools accepteren een array zodat meerdere onafhankelijke bewerkingen in een call kunnen.
 - Binnen een batch mag een latere operatie verwijzen naar een eerdere operatie via een lokale alias, bijvoorbeeld `@wind_query`.
+- De agent-sync leest `supports_parallel_tool_calls` uit de ElevenLabs LLM-catalogus en activeert platformparallellisatie alleen voor modellen die dit ondersteunen. Het gekozen `qwen36-35b-a3b` rapporteert momenteel `false`. Onafhankelijke query-operaties binnen een `data_batch` draaien desondanks concurrent tegen exact dezelfde immutable source bundle. Een operatie met een `@alias` wacht op haar dependency; `dashboard_batch` wacht altijd op de benodigde handles en dashboardmutaties blijven versiebeveiligd en geordend.
+- Bij dashboardrefresh worden identieke logische bindings gededupliceerd en verschillende zichtbare bindings parallel gematerialiseerd. De renderer ontvangt pas daarna een complete, consistente panelset voor dezelfde bundle.
 - Toolresultaten bevatten standaard handles en maximaal vijf previewrecords.
 - `detail="full"` is alleen toegestaan wanneer de gebruiker expliciet om ruwe details vraagt.
 - De systeeminstructie stuurt op maximaal een `data_batch` en een `dashboard_batch` per normale dashboardopdracht.
-- Tool descriptions blijven kort; uitgebreide stream- en panelschema's worden via `inspect_workspace` opgevraagd en niet permanent in de prompt herhaald.
+- De prompt bevat een compacte, versioned routeringscatalogus met de zeven stabiele stream-IDs, bekende measurement metrics, gemeenschappelijke recordvelden, paneltypen en directe recepten. Actuele waarden, bronstatus en previews blijven uitsluitend tooloutput.
+- Concrete opdrachten op bekende data slaan `inspect_workspace` over. Volledige schema-, status-, incident- en configuratiedetails blijven on demand beschikbaar.
+- Een herhaalbare ElevenLabs-acceptatiesuite bevat veertig first-turn cases voor alle zeven bronroutes en alle zes publieke tools, inclusief multi-source batches, aggregatie, baseline, correlatie, Places, websearch, dashboardmetadata, focus/layout, 2D/3D-kaartmodus, undo, panel/full capture en causaliteitsbegrenzing. Naast de eerste tool valideert de suite stream, operatie, metriek, sortering, limiet, radius, place-types en dashboardoperatie. Tijdelijke platformtests worden na afloop verwijderd.
+- De suite bewaart lokaal per case een prompt- en validatorfingerprint. Een normale run voert alleen nieuwe, gewijzigde en eerder mislukte cases uit; een volledige betaalde rerun vereist expliciet `--all`. De test faalt wanneer een bekende bron niet direct naar `data_batch` routeert of eerst `inspect_workspace` gebruikt.
 
 ### 1. inspect_workspace
 
-Doel: discoverability zonder grote statische prompt.
+Doel: expliciete discoverability en uitzonderingsafhandeling; niet de standaardroute voor bekende dashboardopdrachten.
 
 Input:
 
@@ -508,6 +513,8 @@ Doel: alle read-only datavragen in een toolroundtrip.
 Ondersteunde operations:
 
 - `query_events`: stream, beperkte filter-DSL, window, sortering en limit;
+- `query_measurements`: meetstream, metric(s), beperkte filter-DSL, window, sortering en limit;
+- `query_nearby`: een doelstream rond een of alle geolokaliseerde records uit een immutable `origin_handle`, optioneel beperkt tot `origin_record_id`, met een harde straalgrens van tien kilometer;
 - `aggregate`: input handle of stream, metric, group-by, window en functie;
 - `baseline`: metric, locatie/segment, historisch venster en methode;
 - `correlate`: twee handles/series, window, lag en methode;
@@ -527,7 +534,9 @@ Filter-DSL:
 - geen SQL, regex, script, expression language of computed literal series;
 - limieten en time windows worden server-side begrensd.
 
-Output: een result map van alias naar `DataHandle` plus korte waarschuwingen over stale of incomplete data.
+`query_nearby` is de generieke bidirectionele cross-source spatial join. P2000, NDW, NS-stations, KNMI-stations, RWS-waterpunten en Luchtmeetnetstations kunnen zowel origin als doel zijn. De query-engine laadt de origin-handle eenmaal, berekent lokaal de haversine-afstand en annoteert elk resultaat met `distance_m`, `distance_origin_record_id` en `distance_origin_label`. Google Geocoding wordt alleen gebruikt wanneer de gebruiker vrije locatietekst opgeeft en er geen bronrecord met geometrie is; Google Places blijft uitsluitend voor externe voorzieningen.
+
+Output: een result map van alias naar `DataHandle`, maximaal vijf previewrecords, freshness en compacte `source_status` voor alle bevraagde streams. Hierdoor kan de agent een resultaat onderbouwen zonder een aparte inspectieronde.
 
 ### Baseline policy
 
@@ -553,7 +562,7 @@ Doel: alle viewmutaties atomair in een toolroundtrip.
 
 Input:
 
-- `expected_version`: verplichte huidige dashboardversie;
+- `expected_version`: door de browser met de actuele dashboardversie ingevuld; het LLM hoeft deze niet op te zoeken of te leveren;
 - `operations`: een of meer van:
   - `set_meta`;
   - `set_layout_template`;
@@ -577,7 +586,7 @@ Input:
 - `order`: integer binnen begrensd bereik;
 - panel-specifieke props uit het registryschema.
 
-De batch is volledig atomair. Een ongeldige operatie resulteert in geen enkele dashboardwijziging. Bij versieconflict krijgt de agent `VERSION_CONFLICT` en voert hij eerst compact `inspect_workspace(sections=["dashboard"])` uit.
+De batch is volledig atomair. Een ongeldige operatie resulteert in geen enkele dashboardwijziging. Bij versieconflict haalt de client eenmaal de actuele versie op en herhaalt exact dezelfde gevalideerde batch. Alleen als dat opnieuw faalt, krijgt de agent de fout terug.
 
 Undo-semantiek is v1 bewust simpel:
 
@@ -589,18 +598,19 @@ Undo-semantiek is v1 bewust simpel:
 
 ### 4. nearby_places
 
-Doel: Google Places Nearby Search uitvoeren rond bestaande bronlocatie.
+Doel: Google Places Nearby Search uitvoeren rond een bestaande bronlocatie of een tijdelijk opgeloste Nederlandse plaatsnaam.
 
 Input:
 
-- `origin_handle` of `location_ref`;
+- precies een van `origin_handle`, `location_ref`, `resolution_id` of `origin_text`;
+- `origin_text` wordt binnen dezelfde toolcall via Google Geocoding naar een vijftien minuten geldige `EphemeralLocationResolution` vertaald; de tekst wordt nooit als coordinaat of canonieke bronlocatie opgeslagen;
 - `included_types`: toegestane Google Place types, bijvoorbeeld `school`, `hospital`, `gas_station`, `fire_station`, `police`, `pharmacy`;
 - `radius_m`: groter dan nul en maximaal vijfduizend;
 - `max_results`: een tot twintig;
 - `rank`: `distance` of `popularity`;
 - `fields_profile`: `minimal`, `contact`, `operational`.
 
-De backend vertaalt `fields_profile` naar een expliciete Google FieldMask om kosten en tokens te beperken. De agent kan geen coordinaten injecteren. Output is een immutable `places` handle. Verdere analyse gebruikt `data_batch` op die handle.
+De backend vertaalt `fields_profile` naar een expliciete Google FieldMask om kosten en tokens te beperken, gebruikt `includedPrimaryTypes` en valideert de geretourneerde primary types nogmaals voordat een handle wordt gemaakt. De agent kan geen coordinaten injecteren. Output is een immutable `places` handle met per resultaat een deterministisch berekende `distance_m` en een expliciet `nearest` resultaat. Verdere analyse gebruikt `data_batch` op die handle. Een mislukte Places-call mag niet automatisch naar `external_search` uitwijken.
 
 ### 5. capture_dashboard
 
@@ -661,9 +671,10 @@ De eerste registry bevat:
 
 | Panel type | Binding | Hoofdgebruik |
 |---|---|---|
-| `kpi` | aggregate/baseline handle | actuele waarde, delta en bronstatus |
-| `timeseries` | series handle | meting of incidenttrend over tijd |
-| `comparison` | aggregate/baseline/diff | actueel versus normaal of twee periodes |
+| `kpi` | single-value series, aggregate or baseline handle | actuele waarde, delta en bronstatus |
+| `timeseries` | series handle met minimaal twee punten per station-metriekreeks | meting over tijd; maximaal acht zichtbare reeksen |
+| `ranking` | series/aggregate handle met één metriek en eenheid | onderling vergelijkbare locaties of groepen |
+| `comparison` | aggregate/baseline handle | actueel versus normaal of minstens twee aggregatiegroepen |
 | `incident_timeline` | event/incident handle | chronologische bronevents |
 | `event_table` | event handle | compacte filterbare records |
 | `source_health` | workspace state | freshness, errors en trust tiers |
@@ -678,12 +689,19 @@ De eerste registry bevat:
 ### Panel invariants
 
 - Elke datapanel heeft minimaal een `LogicalDataBinding`.
+- Iedere handle publiceert machine-readable panelcompatibiliteit. De backend valideert cardinaliteit, numerieke velden, unieke labels, coördinaten, metriek-/eenheidshomogeniteit en punten per stationreeks voordat een panelversie wordt opgeslagen.
+- Globaal verschillende timestamps maken nog geen tijdreeks: minstens één vaste station-metriekreeks bevat twee meetmomenten. Meer dan acht stationreeksen vereist eerst een locatie- of groepsfilter.
+- Kaarten zijn alleen geldig bij minimaal één record met broncoördinaten. Niet-lokaliseerbare records blijven in feeds beschikbaar en worden expliciet als weggelaten gerapporteerd.
 - Elk panel toont bron- en freshnessmetadata in footer of evidence drawer.
 - Elk panel toont de actuele materialized handle en source bundle als runtime evidence, niet als bewerkbare panelconfig.
 - Correlatie wordt nooit als causaliteit geformuleerd.
 - `ai_brief` bevat geen ongeciteerde numerieke claims.
+- `map_3d_google` is de standaard voor nieuwe geschikte geo-handles; `map_2d` wordt gebruikt op expliciet verzoek of als de 3D-runtime niet beschikbaar is.
+- Een samengesteld panel kan maximaal zes logische bindings bevatten. Dit geldt voor kaarten, feeds, ranglijsten, tijdreeksen, vergelijkingen, KPI's, Places, evidence en samenvattingen. Iedere binding materialiseert onafhankelijk tegen dezelfde source bundle; records worden per `stream_id` gekleurd en behouden hun eigen provenance, freshness en evidence-link. `binding` blijft de primaire laag voor achterwaartse compatibiliteit en aanvullende lagen staan in `layer_bindings`. `correlation` blijft aan precies een server-berekende correlatiehandle gebonden en `source_health` heeft geen databinding.
+- Markers in beide kaartmodi zijn interactief. Een klik toont titel, compacte recordcontext, bron en meettijd, biedt een doorklik naar dezelfde read-only evidence drawer als tabellen en feeds en kan het record als tijdelijke operatorfocus selecteren. De actieve marker en eventuele overeenkomstige feedrij blijven visueel gemarkeerd; de voice-overlay toont bron, exact record-ID, titel en omschrijving. De selectie wordt na een Dash-her-render opnieuw toegepast en wijzigt nooit het bronrecord of de opgeslagen dashboardconfiguratie.
+- Een operatorfocus bevat uitsluitend de bestaande `source_ref`, stream, record-ID, label en optionele broncoordinaten. De browser bewaart deze alleen voor de huidige tab, toont een verwijderbare focuschip en stuurt de actieve ElevenLabs-conversatie een stille contextual update. Dit maakt vervolgvragen met “dit”, “hier” of “deze melding” mogelijk zonder brondata te wijzigen, een dashboardversie te maken of opnieuw schema's te inspecteren.
 - `map_3d_google` heeft altijd een 2D-fallback en mag geen kritieke informatie uitsluitend via hoogte of perspectief tonen.
-- Maximum twaalf zichtbare operationele panels; extra panels worden door de agent vervangen, niet eindeloos toegevoegd.
+- Maximum twaalf zichtbare operationele panels; extra panels worden door de agent vervangen, niet eindeloos toegevoegd. Verborgen provenance- en bronstatusinformatie blijft via de infolade beschikbaar.
 
 ## DashboardSpec
 
@@ -767,6 +785,8 @@ Templates map semantic spans to responsive Vizro Flex/Grid behavior. The agent k
 ## Dashboard initiation
 
 Init draait per eerste page load, niet bij serverstart. Zolang er geen browserclient is, starten adapters en clustering wel, maar er wordt nog geen initial dashboard plan gemaakt.
+
+In v1 betekent dit concreet: de eerste succesvolle browser-paint triggert de planner direct voor een nog onaangepast system-dashboard. Daarna vraagt iedere browserrefresh de planner hoogstens eenmaal, maar Cerebras wordt alleen aangeroepen wanneer de nieuwste persistente dashboardconfiguratie minimaal vijftien minuten oud is. Iedere opgeslagen agent-, user-, restore- of plannerwijziging reset die cooldown; een brondatarefresh zonder configuratiewijziging niet. Dit contract overleeft serverrestarts. Een expliciete knop in de instellingenlade mag de cooldown bewust omzeilen. De planner kiest alleen bronfocus en presentatie; vaste server-side recepten voeren de actuele read-only queries uit en binden de resulterende handles. Iedere nieuwe compositie vervangt de zichtbare werkruimte append-only en bewaart eerdere dashboardversies in de historie.
 
 Bij eerste page load:
 
@@ -899,7 +919,7 @@ Google Geocoding-resultaten worden behandeld als policy-limited commercial conte
 
 ### Google 2D mode
 
-- altijd beschikbaar;
+- beschikbaar als expliciete platte kaart en als fallback voor 3D;
 - custom Vizro/Dash component rond Google Maps JavaScript API;
 - toont incidenten, meetstations, weg-/spoorcontext, plaatsresultaten en geselecteerde gebieden;
 - clustering en hoverdetails zijn deterministic;
@@ -908,10 +928,11 @@ Google Geocoding-resultaten worden behandeld als policy-limited commercial conte
 
 ### Google 3D mode
 
-- optionele custom Vizro/Dash component rond Maps JavaScript `Map3DElement`;
+- primaire custom Vizro/Dash kaartcomponent rond Maps JavaScript `Map3DElement` voor geo-handles;
 - lazy-loaded wanneer een `map_3d_google` panel zichtbaar wordt;
 - camera centreert op location/geo handle;
 - toegestane overlays komen uit handlebindings;
+- interactieve `Marker3DInteractiveElement`-markers openen een `PopoverElement` met recordcontext en evidence-link;
 - camera-animaties zijn kort en functioneel;
 - Google-logo/attributie en gebruiksvoorwaarden blijven zichtbaar;
 - kosten en quota worden in settings getoond.
@@ -920,13 +941,15 @@ Google Geocoding-resultaten worden behandeld als policy-limited commercial conte
 
 Voor de vraag "toon scholen binnen vijf kilometer":
 
-1. agent gebruikt bestaande incident/location handle;
+1. agent gebruikt een bestaande incident/location handle, of geeft een gewone plaatsnaam direct als `origin_text` mee;
 2. `nearby_places` valideert radius en type;
 3. backend gebruikt Nearby Search (New) met minimale FieldMask;
 4. response wordt immutable places handle;
 5. agent bindt handle aan kaart en nearby-places panel in een dashboard-batch;
 6. gesproken antwoord noemt aantal en dichtstbijzijnde resultaten met Google als bron;
 7. verdere analyse gebeurt alleen over het places handle, niet via een tweede willekeurige Google-call.
+
+Voor cross-source causaliteitsvragen geldt aanvullend: een `correlation` panel accepteert uitsluitend een server-issued `correlation` handle. Een actuele meetreeks of losse incidenttelling mag niet als correlatie of causaal effect worden gepresenteerd.
 
 ## Voice and text agent
 
@@ -1015,16 +1038,19 @@ Voor Talk2Dashboard is de aanbevolen instelling `elevenlabs`, omdat correcte uit
 
 ## System prompt contract
 
-De systeemprompt blijft kort en verwijst naar de toolcontracten. Hoofdregels:
+De systeemprompt blijft compact maar bevat voldoende stabiele routeringskennis om bekende opdrachten zonder inspectieronde uit te voeren. Hoofdregels:
 
 - spreek en schrijf Nederlands;
 - gebruik alleen tooldata voor feitelijke en numerieke claims;
 - wijzig nooit data, alleen dashboardstate;
 - gebruik maximaal een data-batch en een dashboard-batch als dat voldoende is;
 - bind panelen alleen aan handles;
-- inspecteer alleen schema's die nodig zijn;
-- antwoord kort en spreekbaar;
-- een korte acknowledgement voor een toolcall is toegestaan, maar presenteer geen resultaat voor tool success;
+- inspecteer niet voor bekende streams, metrics, recordvelden of paneltypen; gebruik inspectie alleen voor expliciete discoverability, onbekende IDs, incidentdetails of echte ambiguiteit;
+- antwoord standaard in een of twee korte zinnen en bij voorkeur maximaal vijfentwintig gesproken woorden; geef alleen op verzoek meer detail;
+- bevestig een geslaagde dashboardwijziging in een zin zonder panelen, tools of tussenstappen op te sommen;
+- beantwoord een feitelijke vraag direct en voeg hooguit een bron-, actualiteits- of onzekerheidszin toe;
+- herhaal de vraag niet en vermijd proactieve afsluitingen zoals "kan ik nog ergens mee helpen?" tijdens een lopend gesprek;
+- vertel geen interne schema-, veld- of toolplanning; een korte acknowledgement is toegestaan, maar presenteer geen resultaat voor tool success;
 - benoem stale, incomplete of onbevestigde bronnen;
 - websearch alleen wanneer session policy enabled is;
 - behandel NOS en websearch als context, niet als bevestigde operationele data;
@@ -1045,8 +1071,9 @@ De systeemprompt blijft kort en verwijst naar de toolcontracten. Hoofdregels:
 
 ### Prompt and context
 
-- compact versioned system prompt;
-- stream- en paneldetails on demand via `inspect_workspace`;
+- compacte versioned system prompt met vaste streamroutering en directe query-/panelrecepten;
+- actuele bronstatus, previews en freshness in hetzelfde `data_batch`-resultaat;
+- uitgebreide stream-, panel-, incident- en configuratiedetails on demand via `inspect_workspace`;
 - geen volledige dashboardstate bij iedere LLM-turn;
 - session context bevat alleen IDs, actieve specversie, policyflags en laatste relevante handles;
 - oude toolpreviews worden vervangen door handleverwijzingen;
@@ -1438,7 +1465,7 @@ Commits met generated fixtures noemen hun bron, snapshotdatum, licentie en redac
 - `ELEVENLABS_API_KEY`: server-side; voor agenttoken/config/provisioning.
 - `ELEVENLABS_AGENT_ID=agent_3301kx2t5vbbfsbaezy059s1e8t8`: de gepubliceerde Talk2Dashboard agent.
 - `ELEVENLABS_VOICE_ID=SXBL9NbvTrjsJQYay2kT`: de gekozen ElevenLabs voice.
-- `ELEVENLABS_LLM_MODEL=Qwen3.6-35B-A3B`: native ElevenLabs agent LLM.
+- `ELEVENLABS_LLM_MODEL=qwen36-35b-a3b`: API-id van het native ElevenLabs Qwen3.6-35B-A3B-model.
 
 ### Required for auxiliary LLM services
 
@@ -1473,7 +1500,7 @@ Gebruik bij voorkeur twee Google-keys omdat browser- en serverrestricties versch
 ### Optional
 
 - `PUBLIC_BASE_URL`: nodig wanneer externe webhooks of deployed tool endpoints de lokale omgeving via tunnel/deployment moeten bereiken.
-- `BRAVE_SEARCH_API_KEY`: optionele websearchprovider; default provider is Brave Search API.
+- `BRAVE_SEARCH_API_KEY`: optionele voorkeursprovider; zonder key gebruikt de app DDGS.
 - `DATA_RETENTION_DAYS`, `MAX_CONVERSATION_SECONDS`, `PLACES_DAILY_BUDGET`.
 - `KNMI_STATION_IDS`: optionele allowlist van stations; default is landelijke ingest van alle actieve tienminutenstations.
 - `CLUSTER_JOIN_DISTANCE_M`, `CLUSTER_JOIN_WINDOW_MINUTES`, `CLUSTER_ACTIVE_MIN_EVENTS`, `CLUSTER_RESOLVE_AFTER_MINUTES`: clusteringdefaults zoals gedefinieerd in het incident model.
@@ -1501,18 +1528,19 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 
 ### Websearch
 
-- Default provider is Brave Search API.
+- Brave Search API is de voorkeursprovider wanneer een key geconfigureerd is; DDGS is de eerste keyloze fallback.
 - Websearch blijft standaard uit en wordt server-side geblokkeerd zolang de gebruiker de toggle niet activeert.
 - Queryresultaten worden teruggegeven als URL, titel, snippet, retrieved_at en provider; geen volledige pagina-inhoud in de normale voice-context.
 - Maximaal vijf resultaten per toolcall.
 - Resultaten krijgen trust tier `unverified_external`.
-- Als `BRAVE_SEARCH_API_KEY` ontbreekt, toont de app websearch disabled; gebruik geen onofficiele scrapingfallback voor GitHub-demo's.
+- Als `BRAVE_SEARCH_API_KEY` ontbreekt, gebruikt de lokale single-user demo DDGS als eerste keyloze fallback. Alleen wanneer DDGS technisch faalt wordt Google News RSS gebruikt; die laatste fallback is beperkt tot nieuwsresultaten. Alle providers blijven onder dezelfde opt-in websearchpolicy vallen.
 
 ### KNMI
 
 - Registreer voor het developer portal en vraag key(s) voor benodigde APIs.
 - Selecteer exacte datasetnamen/versies voor tienminutenobservaties, waarschuwingen en eventueel radar.
 - Default ingestscope is landelijk: alle actieve automatische weerstations uit de tienminutendataset worden geingest, zodat baselines en incidentcontext overal in Nederland werken. Het datavolume blijft klein genoeg voor SQLite binnen `DATA_RETENTION_DAYS`.
+- De huidige v1-adapter materialiseert alleen het nieuwste bestand en dus één landelijk stationmoment. Gebruik dit voor kaart, ranglijst, KPI of aggregatie; claim geen tijdtrend totdat een historische adapter of opgebouwde historie expliciet wordt bevraagd.
 - `KNMI_STATION_IDS` beperkt de ingest optioneel tot een expliciete stationslijst voor ontwikkeling of quotabeheer; baselines melden dan `INSUFFICIENT_BASELINE` buiten die scope.
 - Gebruik Notification Service/MQTT voor snelle filemeldingen waar nuttig; niet excessief pollen.
 - Bewaar `X-KNMI-Deprecation` en datasetversie in adaptermetrics.
@@ -1522,6 +1550,8 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 - Gebruik de nieuwe `ddapi20` Waterwebservices, niet de klassieke endpoints.
 - Leg locatiecodes, grootheden, procestypes en quality flags vast.
 - Test ongecontroleerde versus gecontroleerde waarden.
+- De v1 WFS-laag `locatiesmetlaatstewaarneming` is expliciet een actuele momentopname: een groter queryvenster maakt geen historische reeks. Een timeseries vereist minimaal twee verschillende meetmomenten uit een afzonderlijke historische adapter of uit werkelijk opgebouwde lokale historie.
+- Sommige inactieve WFS-locaties rapporteren zeer oude waarden als hun laatste waarneming. De adapter verwijdert records die meer dan vierentwintig uur ouder zijn dan de nieuwste waarneming in dezelfde snapshot en rapporteert het verwijderde aantal in snapshotmetadata.
 
 ### NDW
 
@@ -1532,6 +1562,8 @@ Alle waarden komen in `.env`; de repository bevat alleen `.env.example`. De appl
 ### Luchtmeetnet
 
 - Gebruik publieke OpenAPI met fair-use limieten.
+- Koppel de latest-metingen aan stationdetails uit `/stations/{number}` en cache die details in de warme adapter, omdat de gepagineerde stationslijst geen geometrie bevat.
+- Een Luchtmeetnet-tijdreeks gebruikt precies één stof en bij voorkeur één station. De generieke latest-endpoint bevat maar enkele recente meeturen; landelijke multi-stationresultaten zijn primair geschikt voor kaart en ranglijst.
 - Leg expliciet uit dat metingen meestal uurlijkse context zijn en geen realtime plume model.
 
 ### NS

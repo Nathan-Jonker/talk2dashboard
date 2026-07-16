@@ -43,18 +43,26 @@ class CaptureService:
                 f"?capture=1&dashboard_version={requested_version}",
                 wait_until="domcontentloaded",
             )
-            await page.wait_for_function(
-                f"document.body.innerText.includes('dashboard v{requested_version}')",
-                timeout=10000,
-            )
-            await page.wait_for_function(
-                """() => {
-                  const pendingMaps = [...document.querySelectorAll('.talk2d-google-map')]
-                    .some((node) => !['ready', 'fallback'].includes(node.dataset.status));
-                  return !pendingMaps && !document.querySelector('.dash-spinner');
-                }""",
-                timeout=wait_for_render_ms,
-            )
+            try:
+                await page.wait_for_function(
+                    f"window.__talk2dRenderReady && "
+                    f"window.__talk2dRenderReady.dashboard_version === {requested_version}",
+                    timeout=wait_for_render_ms,
+                )
+            except Exception:
+                await browser.close()
+                return {
+                    "status": "warning",
+                    "warning": {
+                        "code": "CAPTURE_RENDER_TIMEOUT",
+                        "message": "Dashboard werd niet volledig bevestigd binnen de wachttijd.",
+                        "retryable": True,
+                    },
+                    "dashboard_version": requested_version,
+                    "structured_state": requested.model_dump(mode="json"),
+                    "screenshot_handle": None,
+                    "asset_url": None,
+                }
             if scope == "panel":
                 panel_id = payload.get("panel_id")
                 if not panel_id:

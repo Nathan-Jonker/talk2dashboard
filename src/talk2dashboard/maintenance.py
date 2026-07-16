@@ -15,6 +15,7 @@ from talk2dashboard.storage.models import (
     ConversationRow,
     DashboardConfigRow,
     DataHandleRow,
+    EphemeralLocationResolutionRow,
     IncidentClusterRow,
     LatencyEventRow,
     NormalizedRecordRow,
@@ -39,7 +40,7 @@ class MaintenanceService:
     def cleanup(self) -> dict[str, int]:
         now = datetime.now(UTC)
         cutoff = (now - timedelta(days=self.settings.data_retention_days)).isoformat()
-        removed = {"bundles": 0, "assets": 0, "audit_rows": 0}
+        removed = {"bundles": 0, "assets": 0, "audit_rows": 0, "locations": 0}
         with self.database.session() as session:
             protected_bundles = set(
                 session.scalars(select(DashboardConfigRow.source_bundle_version)).all()
@@ -100,6 +101,13 @@ class MaintenanceService:
                 delete(DataHandleRow).where(
                     DataHandleRow.expires_at.is_not(None),
                     DataHandleRow.expires_at < now.isoformat(),
+                )
+            )
+            removed["locations"] += _affected_rows(
+                session.execute(
+                    delete(EphemeralLocationResolutionRow).where(
+                        EphemeralLocationResolutionRow.expires_at <= now.isoformat()
+                    )
                 )
             )
             ended = session.scalars(

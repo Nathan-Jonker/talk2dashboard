@@ -1,0 +1,68 @@
+body { background: #071820; color: #f3f7f5; }
+.atlas-focus { position: relative; background: #0b252e; }
+.atlas-map { position: absolute; top: calc(var(--nav-height) - 35%); right: -4%; width: auto; max-width: none; height: 270%; object-fit: contain; filter: saturate(.72) brightness(.64) contrast(1.18); animation: atlas-enter 1.1s var(--prototype-ease) both; }
+.atlas-shade { position: absolute; inset: var(--nav-height) 0 0; background: radial-gradient(circle at 58% 48%, transparent 0 23%, rgba(4,18,25,.18) 48%, rgba(2,14,20,.76) 100%); pointer-events: none; }
+.atlas-brand { position: absolute; inset: calc(var(--nav-height) + 1.25rem) auto auto 1.4rem; z-index: 2; display: flex; align-items: stretch; gap: .7rem; }
+.atlas-brand > span { width: .28rem; background: #ffd800; }
+.atlas-brand div { display: grid; gap: .15rem; }
+.atlas-brand strong { font-size: 1.15rem; }
+.atlas-brand small { color: #bdd0d6; }
+.atlas-rail { position: absolute; z-index: 3; inset: calc(var(--nav-height) + 5.9rem) auto 1.2rem 1.2rem; display: grid; grid-template-rows: auto 1fr auto; width: 11.5rem; overflow: hidden; border: 1px solid rgba(214,236,240,.2); background: rgba(4, 24, 32, .82); backdrop-filter: blur(18px); box-shadow: 0 20px 50px rgba(0,0,0,.28); }
+.atlas-rail__top { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .55rem; padding: .9rem; border-bottom: 1px solid rgba(220,240,242,.17); }
+.atlas-rail__top small { color: #a5bcc5; font-size: .66rem; }
+.atlas-rail nav { display: grid; align-content: start; }
+.atlas-rail nav button { display: grid; grid-template-columns: 2.8rem 1fr; align-items: baseline; min-height: 4rem; padding: .7rem .9rem; border: 0; border-bottom: 1px solid rgba(220,240,242,.13); background: transparent; color: #eaf4f5; text-align: left; cursor: pointer; }
+.atlas-rail nav button:hover, .atlas-rail nav button[aria-current] { background: rgba(255,255,255,.09); }
+.atlas-rail nav button[aria-current] { box-shadow: inset 3px 0 #ffd800; }
+.atlas-rail nav b { font-size: 1.45rem; }
+.atlas-rail nav span { color: #bdd0d6; font-size: .75rem; }
+.atlas-rail__source { padding: .9rem; border-top: 1px solid rgba(220,240,242,.17); }
+.atlas-rail__source span { color: #80cfe5; font-size: .65rem; }
+.atlas-rail__source strong { display: block; margin-top: .3rem; font-size: .82rem; }
+.atlas-rail__source p { margin: .2rem 0 0; color: #a8bec6; font-size: .7rem; }
+.atlas-lens { position: absolute; z-index: 2; inset: calc(var(--nav-height) + 1.3rem) 1.4rem auto auto; width: min(26rem, calc(100vw - 16rem)); padding: 1rem 1.1rem; border-top: 3px solid #ffd800; background: rgba(4, 24, 32, .76); backdrop-filter: blur(14px); }
+.atlas-lens > span { color: #80d0e4; font-size: .66rem; }
+.atlas-lens h1 { margin: .25rem 0; font-size: 2.2rem; line-height: 1; }
+.atlas-lens p { margin: 0; color: #c0d1d7; font-size: .8rem; }
+.atlas-lens div { display: flex; align-items: end; gap: .75rem; margin-top: .75rem; }
+.atlas-lens div strong { font-size: 2.7rem; line-height: .9; }
+.atlas-lens div span { color: #cad9dd; font-size: .72rem; line-height: 1.3; }
+.atlas-lens div small { color: #85a1ab; }
+.atlas-pin { position: absolute; z-index: 2; width: 2.3rem; height: 2.3rem; border: 3px solid rgba(255,255,255,.92); border-radius: 50% 50% 50% 0; background: #e1463f; box-shadow: 0 7px 25px rgba(0,0,0,.36); cursor: pointer; transform: rotate(-45deg); transition: transform 180ms ease, background-color 180ms ease; }
+.atlas-pin::after { position: absolute; inset: .62rem; content: ""; border-radius: 50%; background: #6a1716; }
+.atlas-pin:hover, .atlas-pin[data-selected] { background: #ffd800; transform: rotate(-45deg) scale(1.18); }
+.atlas-pin--one { inset: 42% auto auto 57%; }
+.atlas-pin--two { inset: 60% auto auto 42%; }
+.atlas-pin--three { inset: 32% 21% auto auto; }
+.atlas-briefing { position: absolute; z-index: 3; inset: auto 1.2rem 1.2rem 14rem; display: grid; grid-template-columns: 5rem minmax(0,1fr) auto; gap: 1.15rem; align-items: center; min-height: 7.5rem; padding: 1rem 1.2rem; background: rgba(244,247,244,.95); color: #112b37; box-shadow: 0 18px 48px rgba(0,0,0,.27); backdrop-filter: blur(16px); }
+.atlas-briefing__index { display: grid; gap: .55rem; align-content: center; }
+.atlas-briefing__index span { color: #5c727d; font-size: .7rem; }
+.atlas-briefing__index i { width: 100%; height: 2px; background: linear-gradient(90deg,#0077b8 28%,#cad5da 28%); }
+.atlas-briefing > div:nth-child(2) > span { color: #0077b8; font-size: .68rem; }
+.atlas-briefing h2 { margin: .18rem 0 .25rem; font-size: 1.25rem; line-height: 1.1; }
+.atlas-briefing p { max-width: 58rem; margin: 0; color: #566c77; font-size: .78rem; line-height: 1.35; }
+.atlas-briefing__actions { display: flex; align-items: center; gap: .7rem; }
+.atlas-briefing__actions a { color: #006fae; font-size: .78rem; font-weight: 700; }
+.atlas-briefing__actions button { width: 2.75rem; height: 2.75rem; border: 0; background: #052f4f; color: #fff; font-size: 1.3rem; cursor: pointer; }
+.atlas-voice { position: absolute; z-index: 4; inset: auto 2rem 10rem auto; display: flex; align-items: center; gap: 1rem; }
+.atlas-voice > div { display: none; max-width: 17rem; padding: .8rem 1rem; background: rgba(4,24,32,.88); backdrop-filter: blur(14px); }
+.atlas-voice[data-open] > div { display: block; animation: rise-in 220ms ease both; }
+.atlas-voice span { color: #80d0e4; font-size: .66rem; }
+.atlas-voice p { margin: .25rem 0 0; font-size: .8rem; }
+@keyframes atlas-enter { from { opacity: .45; } to { opacity: 1; } }
+
+@media (max-width: 760px) {
+  .atlas-map { right: -14%; }
+  .atlas-brand { inset: calc(var(--nav-height) + .9rem) auto auto .9rem; }
+  .atlas-rail { inset: auto auto .75rem .75rem; width: 6rem; bottom: .75rem; }
+  .atlas-rail__top { grid-template-columns: auto 1fr; }
+  .atlas-rail__top small, .atlas-rail nav span, .atlas-rail__source { display: none; }
+  .atlas-rail nav button { grid-template-columns: 1fr; text-align: center; }
+  .atlas-lens { inset: calc(var(--nav-height) + 4.6rem) .75rem auto auto; width: 13rem; }
+  .atlas-lens h1 { font-size: 1.65rem; }
+  .atlas-lens div strong { font-size: 2rem; }
+  .atlas-briefing { inset: auto .75rem .75rem 7.4rem; grid-template-columns: 1fr auto; min-height: 6.5rem; padding: .8rem; }
+  .atlas-briefing__index, .atlas-briefing p, .atlas-briefing__actions a { display: none; }
+  .atlas-briefing h2 { font-size: 1rem; }
+  .atlas-voice { inset: auto 1rem 8.5rem auto; }
+}

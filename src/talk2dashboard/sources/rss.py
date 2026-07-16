@@ -12,6 +12,8 @@ from talk2dashboard.sources.base import AdapterResult, SourceAdapter
 
 
 class RSSAdapter(SourceAdapter):
+    freshness_basis = "fetch"
+
     def __init__(
         self,
         *,

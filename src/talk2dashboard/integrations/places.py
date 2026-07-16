@@ -6,6 +6,7 @@ from typing import ClassVar
 
 import httpx
 
+from talk2dashboard.agent_catalog import NEARBY_PLACE_TYPES
 from talk2dashboard.config import Settings
 from talk2dashboard.integrations.audit import record_provider_call
 from talk2dashboard.storage.database import Database
@@ -49,6 +50,10 @@ class PlacesClient:
         "contact": "places.id,places.displayName,places.primaryType,places.location,places.googleMapsUri,places.formattedAddress,places.nationalPhoneNumber",
         "operational": "places.id,places.displayName,places.primaryType,places.location,places.googleMapsUri,places.regularOpeningHours",
     }
+    ALLOWED_TYPES: ClassVar[set[str]] = set(NEARBY_PLACE_TYPES)
+    PRIMARY_TYPE_COMPATIBILITY: ClassVar[dict[str, set[str]]] = {
+        "transit_station": {"transit_station", "train_station", "bus_station"},
+    }
 
     def __init__(self, settings: Settings, database: Database) -> None:
         self.settings = settings
@@ -70,6 +75,9 @@ class PlacesClient:
             raise ValueError("radius_m must be between 1 and 5000")
         if not 1 <= max_results <= 20:
             raise ValueError("max_results must be between 1 and 20")
+        unknown_types = sorted(set(included_types) - self.ALLOWED_TYPES)
+        if unknown_types:
+            raise ValueError(f"unsupported Place types: {', '.join(unknown_types)}")
         if not self.settings.google_places_server_api_key:
             raise RuntimeError("GOOGLE_PLACES_NOT_CONFIGURED")
         count, limit = self.budget.consume("places", self.settings.places_daily_budget)
@@ -77,7 +85,7 @@ class PlacesClient:
         if not field_mask:
             raise ValueError("unknown fields_profile")
         payload = {
-            "includedTypes": included_types,
+            "includedPrimaryTypes": included_types,
             "maxResultCount": max_results,
             "rankPreference": "DISTANCE" if rank == "distance" else "POPULARITY",
             "locationRestriction": {
@@ -119,13 +127,25 @@ class PlacesClient:
                 duration_ms=(time.monotonic_ns() - started) / 1_000_000,
             )
             raise
+        accepted_primary_types = set().union(
+            *(
+                self.PRIMARY_TYPE_COMPATIBILITY.get(place_type, {place_type})
+                for place_type in included_types
+            )
+        )
+        places = [
+            item
+            for item in data.get("places", [])
+            if item.get("primaryType") in accepted_primary_types
+        ]
         return {
-            "places": data.get("places", []),
+            "places": places,
             "attribution": "Google Maps",
             "budget": {"used_today": count, "limit": limit, "warning": count >= int(limit * 0.8)},
             "request": {
                 "radius_m": radius_m,
                 "included_types": included_types,
+                "accepted_primary_types": sorted(accepted_primary_types),
                 "field_mask": field_mask,
             },
         }

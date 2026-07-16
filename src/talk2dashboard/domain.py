@@ -6,6 +6,24 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+MULTI_BINDING_PANEL_TYPES = frozenset(
+    {
+        "kpi",
+        "timeseries",
+        "ranking",
+        "comparison",
+        "incident_timeline",
+        "event_table",
+        "evidence",
+        "map_2d",
+        "map_3d_google",
+        "nearby_places",
+        "change_summary",
+        "ai_brief",
+    }
+)
+MAX_VISIBLE_PANELS = 12
+
 
 class TrustTier(StrEnum):
     OFFICIAL_MEASUREMENT = "official_measurement"
@@ -25,6 +43,8 @@ class SourceHealthStatus(StrEnum):
     DEGRADED = "degraded"
     OFFLINE = "offline"
     DISABLED = "disabled"
+    STALE = "stale"
+    FIXTURE = "fixture"
 
 
 class SourceRef(BaseModel):
@@ -125,6 +145,9 @@ class SourceHealth(BaseModel):
     error_code: str | None = None
     message: str | None = None
     provider: str | None = None
+    age_seconds: float | None = None
+    fixture: bool = False
+    fallback: bool = False
 
 
 type HandleKind = Literal[
@@ -174,6 +197,7 @@ class PanelSpec(BaseModel):
     panel_type: Literal[
         "kpi",
         "timeseries",
+        "ranking",
         "comparison",
         "incident_timeline",
         "event_table",
@@ -188,9 +212,24 @@ class PanelSpec(BaseModel):
     ]
     title: str = Field(min_length=1, max_length=100)
     binding: LogicalDataBinding | None = None
+    layer_bindings: list[LogicalDataBinding] = Field(default_factory=list, max_length=5)
     span: Literal["compact", "standard", "wide", "full"] = "standard"
     order: int = Field(default=0, ge=0, le=100)
     props: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_layer_bindings(self) -> PanelSpec:
+        if self.layer_bindings and self.panel_type not in MULTI_BINDING_PANEL_TYPES:
+            raise ValueError(f"layer_bindings are not supported by {self.panel_type}")
+        bindings = ([self.binding] if self.binding else []) + self.layer_bindings
+        binding_ids = [binding.binding_id for binding in bindings]
+        if len(binding_ids) != len(set(binding_ids)):
+            raise ValueError("panel binding_id must be unique")
+        return self
+
+    @property
+    def bindings(self) -> tuple[LogicalDataBinding, ...]:
+        return tuple(binding for binding in (self.binding, *self.layer_bindings) if binding)
 
 
 class DashboardSpec(BaseModel):
@@ -212,7 +251,7 @@ class DashboardSpec(BaseModel):
     ] = "visible_handles"
     global_filters: list[dict[str, Any]] = Field(default_factory=list)
     map_focus: str | None = None
-    panels: list[PanelSpec] = Field(default_factory=list, max_length=12)
+    panels: list[PanelSpec] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     created_by: Literal["system", "user", "agent"] = "system"
     conversation_id: str | None = None
@@ -224,6 +263,11 @@ class DashboardSpec(BaseModel):
         ids = [panel.panel_id for panel in panels]
         if len(ids) != len(set(ids)):
             raise ValueError("panel_id must be unique")
+        visible_count = sum(
+            panel.panel_type not in {"source_health", "evidence"} for panel in panels
+        )
+        if visible_count > MAX_VISIBLE_PANELS:
+            raise ValueError(f"dashboard supports at most {MAX_VISIBLE_PANELS} visible panels")
         return sorted(panels, key=lambda item: item.order)
 
 
@@ -253,6 +297,7 @@ class DashboardOperation(BaseModel):
 
 class ToolRequest(BaseModel):
     conversation_id: str | None = None
+    turn_id: str | None = None
     request_id: str
     session_policy_version: int = 1
     dashboard_version: int | None = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from talk2dashboard.domain import EventRecord, MeasurementRecord, SourceHealth, SourceHealthStatus
 
@@ -25,6 +25,7 @@ class SourceAdapter(ABC):
     owner: str
     expected_cadence_seconds: int
     provider: str
+    freshness_basis: Literal["record", "fetch"] = "record"
 
     def __init__(self) -> None:
         self.health = SourceHealth(
@@ -42,15 +43,29 @@ class SourceAdapter(ABC):
     def mark_success(self, result: AdapterResult) -> None:
         now = datetime.now(UTC)
         observed = [record.observed_at for record in [*result.events, *result.measurements]]
+        record_count = len(result.events) + len(result.measurements)
+        is_fixture = result.provider in {"fixture", "recorded fixture"} or bool(
+            result.metadata.get("fixture_id")
+        )
         self.health = self.health.model_copy(
             update={
-                "status": SourceHealthStatus.HEALTHY,
+                "status": (
+                    SourceHealthStatus.FIXTURE
+                    if is_fixture
+                    else (
+                        SourceHealthStatus.HEALTHY
+                        if record_count > 0
+                        else SourceHealthStatus.DEGRADED
+                    )
+                ),
                 "last_success_at": now,
                 "newest_record_at": max(observed) if observed else result.observed_at,
-                "record_count": len(result.events) + len(result.measurements),
+                "record_count": record_count,
                 "error_code": None,
-                "message": None,
+                "message": None if record_count > 0 else "Geen bruikbare records ontvangen",
                 "provider": result.provider,
+                "fixture": is_fixture,
+                "fallback": bool(result.metadata.get("fallback_from")),
             }
         )
 
@@ -94,6 +109,7 @@ class FallbackAdapter(SourceAdapter):
         self.expected_cadence_seconds = min(
             primary.expected_cadence_seconds, fallback.expected_cadence_seconds
         )
+        self.freshness_basis = primary.freshness_basis
         super().__init__()
 
     async def fetch(self) -> AdapterResult:

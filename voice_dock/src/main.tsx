@@ -10,7 +10,7 @@ function mount(): boolean {
   target.dataset.mounted = "true";
   createRoot(target).render(
     <React.StrictMode>
-      <ConversationProvider serverLocation="eu-residency">
+      <ConversationProvider serverLocation="global">
         <VoiceDock />
       </ConversationProvider>
     </React.StrictMode>

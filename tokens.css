@@ -1,34 +1,45 @@
-/* Hallmark · macrostructure: Workbench · nav: N9 edge-aligned · dock: C4 sticky bottom
- * theme: custom · vibe: "public precision, calm, technical, responsive"
- * paper: oklch(98% 0.008 230) · accent: oklch(50% 0.145 235)
- * display: IBM Plex Sans · body: Source Sans 3 · axes: light / geometric-sans / cool
- * studied: no · context: inferred · P5 H5 E4 S5 R5 V4
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * macrostructure: fixed operational workbench · dock: in-flow command bar
+ * theme: Dutch public-service precision · system typography · functional colour
  * Slop test: pass · honest: pass · chrome: pass · tokens: pass · responsive/mobile: pass
  */
 :root {
-  --color-paper: oklch(98% 0.008 230);
-  --color-paper-2: oklch(95% 0.012 230);
-  --color-paper-3: oklch(91% 0.014 230);
-  --color-ink: oklch(20% 0.018 230);
-  --color-ink-2: oklch(29% 0.022 230);
-  --color-muted: oklch(43% 0.018 230);
-  --color-neutral: oklch(55% 0.014 230);
-  --color-rule: oklch(82% 0.014 230);
-  --color-rule-2: oklch(89% 0.012 230);
-  --color-accent: oklch(50% 0.145 235);
+  --color-canvas: oklch(95.8% 0.008 235);
+  --color-paper: oklch(100% 0 0);
+  --color-paper-2: oklch(97.5% 0.006 235);
+  --color-paper-3: oklch(92.5% 0.012 235);
+  --color-ink: oklch(22% 0.035 242);
+  --color-ink-2: oklch(32% 0.035 242);
+  --color-muted: oklch(47% 0.026 242);
+  --color-neutral: oklch(58% 0.02 242);
+  --color-rule: oklch(77% 0.018 235);
+  --color-rule-2: oklch(88% 0.012 235);
+  --color-navy: oklch(30% 0.09 242);
+  --color-accent: oklch(51% 0.15 239);
   --color-accent-ink: oklch(98% 0.008 230);
   --color-focus: oklch(57% 0.19 235);
+  --color-live: oklch(60% 0.13 190);
+  --color-yellow: oklch(87% 0.18 98);
   --color-coral: oklch(61% 0.18 32);
   --color-coral-ink: oklch(98% 0.008 230);
   --color-success: oklch(49% 0.12 155);
   --color-warning: oklch(66% 0.14 75);
+  --color-warning-bg: oklch(96% 0.025 82);
   --color-error: oklch(56% 0.19 28);
   --color-map-water: oklch(88% 0.025 230);
   --color-map-land: oklch(96% 0.01 145);
+  --color-source-p2000: #e75b43;
+  --color-source-ndw: #0878be;
+  --color-source-ns: #f7d417;
+  --color-source-knmi: #00a6a6;
+  --color-source-rws: #003b5c;
+  --color-source-luchtmeetnet: #2f855a;
+  --color-source-nos: #c98300;
+  --color-source-places: #5f6f7c;
 
-  --font-display: "IBM Plex Sans", "Arial Narrow", sans-serif;
-  --font-body: "Source Sans 3", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, monospace;
 
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;

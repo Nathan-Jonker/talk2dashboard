@@ -5,19 +5,23 @@ import csv
 import io
 import json
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 import httpx
+import websockets
 from a2wsgi import WSGIMiddleware
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from websockets.typing import Subprotocol
 
+from talk2dashboard.agent_catalog import STREAM_CAPABILITIES, STREAM_IDS, TOOL_CAPABILITIES
 from talk2dashboard.capture import CaptureService
+from talk2dashboard.claims import audit_numeric_claims
 from talk2dashboard.config import Settings, get_settings
 from talk2dashboard.dashboard import DashboardService
 from talk2dashboard.domain import ToolRequest
@@ -32,12 +36,17 @@ from talk2dashboard.sources.service import SourceService
 from talk2dashboard.storage.assets import AssetStore
 from talk2dashboard.storage.database import Database
 from talk2dashboard.storage.models import (
+    ClaimAuditRow,
     ConversationEventRow,
     ConversationRow,
     LatencyEventRow,
+    NormalizedRecordRow,
     ProviderCallRow,
+    SourceBundleRow,
+    SourceSnapshotRow,
     ToolAuditRow,
 )
+from talk2dashboard.tools.definitions import TOOL_DEFINITIONS
 from talk2dashboard.tools.executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -46,6 +55,10 @@ logger = logging.getLogger(__name__)
 class PolicyUpdate(BaseModel):
     web_search_enabled: bool | None = None
     auto_update_enabled: bool | None = None
+
+
+class DashboardInitializationRequest(BaseModel):
+    force: bool = False
 
 
 class RenderAck(BaseModel):
@@ -77,6 +90,15 @@ class ConversationEvent(BaseModel):
     final: bool = True
 
 
+class FixtureSelection(BaseModel):
+    fixture: str
+
+
+class FixtureControl(BaseModel):
+    stream_id: str
+    mode: str
+
+
 class Container:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -90,7 +112,6 @@ class Container:
         self.dashboard = DashboardService(self.database, self.query)
         self.cerebras = CerebrasService(settings, self.database)
         self.capture = CaptureService(settings, self.dashboard, self.assets, self.cerebras)
-        self.planner = InitialDashboardPlanner(self.cerebras, self.sources, self.dashboard)
         self.tools = ToolExecutor(
             self.database,
             self.sources,
@@ -101,8 +122,10 @@ class Container:
             BraveSearchClient(settings, self.database),
             self.capture.capture,
         )
+        self.planner = InitialDashboardPlanner(
+            self.cerebras, self.sources, self.dashboard, self.tools
+        )
         self.background_task: asyncio.Task | None = None
-        self.planner_task: asyncio.Task | None = None
         self.maintenance_task: asyncio.Task | None = None
 
 
@@ -124,24 +147,6 @@ async def lifespan(_app: FastAPI):
         container.maintenance.run(), name="retention-maintenance"
     )
 
-    async def run_initial_planner() -> None:
-        try:
-            if await container.planner.initialize():
-                current = container.dashboard.current()
-                assert current is not None
-                await container.sources.publish(
-                    {
-                        "type": "dashboard_updated",
-                        "dashboard_version": current.version,
-                    }
-                )
-        except Exception as exc:
-            logger.warning("Initial dashboard planner failed: %s", type(exc).__name__)
-
-    if not settings.fixture_only:
-        container.planner_task = asyncio.create_task(
-            run_initial_planner(), name="initial-dashboard-planner"
-        )
     current = container.dashboard.current()
     assert current is not None
     await container.sources.publish(
@@ -154,9 +159,6 @@ async def lifespan(_app: FastAPI):
         if container.background_task:
             container.background_task.cancel()
             await asyncio.gather(container.background_task, return_exceptions=True)
-        if container.planner_task:
-            container.planner_task.cancel()
-            await asyncio.gather(container.planner_task, return_exceptions=True)
         container.maintenance.stop()
         if container.maintenance_task:
             container.maintenance_task.cancel()
@@ -172,6 +174,34 @@ def public_config() -> dict[str, Any]:
     config["policy"] = container.tools.policy()
     config["source_health"] = [item.model_dump(mode="json") for item in container.sources.health()]
     return config
+
+
+@app.get("/api/agent-tools")
+def agent_tools() -> list[dict[str, Any]]:
+    """Return the same bounded catalog that is provisioned to the voice agent."""
+    result: list[dict[str, Any]] = []
+    for definition in TOOL_DEFINITIONS:
+        name = str(definition["name"])
+        documentation = TOOL_CAPABILITIES[name]
+        result.append(
+            {
+                "name": str(definition["name"]),
+                "display_name": str(definition["display_name"]),
+                "category": str(definition["category"]),
+                "description": str(definition["description"]),
+                "inputs": documentation["inputs"],
+                "outputs": documentation["outputs"],
+                "constraints": documentation["constraints"],
+                "examples": documentation["examples"],
+            }
+        )
+    return result
+
+
+@app.get("/api/source-catalog")
+def source_catalog() -> list[dict[str, Any]]:
+    """Describe the stable read contracts without exposing provider credentials."""
+    return [{"stream_id": stream_id, **STREAM_CAPABILITIES[stream_id]} for stream_id in STREAM_IDS]
 
 
 @app.get("/api/maps/client-config")
@@ -228,6 +258,10 @@ async def elevenlabs_token() -> dict[str, str]:
 
 @app.post("/api/session/elevenlabs-signed-url")
 async def elevenlabs_signed_url() -> dict[str, str]:
+    return {"signed_url": await _fetch_elevenlabs_signed_url()}
+
+
+async def _fetch_elevenlabs_signed_url() -> str:
     if not settings.elevenlabs_api_key or not settings.elevenlabs_agent_id:
         raise HTTPException(503, detail={"code": "ELEVENLABS_NOT_CONFIGURED"})
     async with httpx.AsyncClient(timeout=15) as client:
@@ -247,7 +281,64 @@ async def elevenlabs_signed_url() -> dict[str, str]:
     signed_url = response.json().get("signed_url")
     if not signed_url:
         raise HTTPException(502, detail={"code": "ELEVENLABS_SIGNED_URL_MISSING"})
-    return {"signed_url": signed_url}
+    return str(signed_url)
+
+
+@app.websocket("/api/session/elevenlabs-proxy")
+async def elevenlabs_proxy(browser: WebSocket) -> None:
+    """Relay the ElevenLabs conversation transport through the local same-origin app."""
+    host = browser.headers.get("host", "")
+    origin = browser.headers.get("origin", "")
+    if not host or origin not in {f"http://{host}", f"https://{host}"}:
+        await browser.close(code=1008, reason="Same-origin connection required")
+        return
+
+    await browser.accept(subprotocol="convai")
+    try:
+        signed_url = await _fetch_elevenlabs_signed_url()
+        client_query = browser.url.query
+        upstream_url = f"{signed_url}&{client_query}" if client_query else signed_url
+        async with websockets.connect(
+            upstream_url,
+            subprotocols=[Subprotocol("convai")],
+            max_size=None,
+            ping_interval=20,
+            ping_timeout=20,
+        ) as upstream:
+
+            async def browser_to_upstream() -> None:
+                while True:
+                    message = await browser.receive()
+                    if message["type"] == "websocket.disconnect":
+                        return
+                    if message.get("text") is not None:
+                        await upstream.send(message["text"])
+                    elif message.get("bytes") is not None:
+                        await upstream.send(message["bytes"])
+
+            async def upstream_to_browser() -> None:
+                async for message in upstream:
+                    if isinstance(message, bytes):
+                        await browser.send_bytes(message)
+                    else:
+                        await browser.send_text(message)
+
+            tasks = {
+                asyncio.create_task(browser_to_upstream()),
+                asyncio.create_task(upstream_to_browser()),
+            }
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            for task in done:
+                task.result()
+    except WebSocketDisconnect:
+        return
+    except Exception as error:
+        logger.warning("ElevenLabs proxy disconnected: %s", type(error).__name__)
+        with suppress(RuntimeError):
+            await browser.close(code=1011, reason="ElevenLabs upstream unavailable")
 
 
 @app.post("/api/session/end")
@@ -260,6 +351,22 @@ def end_session(payload: dict[str, Any]) -> dict[str, bool]:
                 row.status = "ended"
                 row.ended_at = datetime.now(UTC).isoformat()
     return {"ok": True}
+
+
+@app.post("/api/session/stop-all")
+async def stop_all() -> dict[str, Any]:
+    ended = 0
+    with container.database.session() as session:
+        rows = session.scalars(
+            select(ConversationRow).where(ConversationRow.status == "active")
+        ).all()
+        for row in rows:
+            row.status = "ended"
+            row.ended_at = datetime.now(UTC).isoformat()
+            ended += 1
+    policy = container.tools.update_policy(auto_update_enabled=False)
+    await container.sources.publish({"type": "policy_updated", "policy": policy})
+    return {"ok": True, "conversations_ended": ended, "auto_update_enabled": False}
 
 
 @app.post("/api/session/register")
@@ -298,6 +405,14 @@ def conversation_event(payload: ConversationEvent) -> dict[str, bool]:
                 handle_ids_json=json.dumps((runtime or {}).get("handle_ids", [])),
                 created_at=datetime.now(UTC).isoformat(),
             )
+        )
+    if payload.role == "agent" and payload.final:
+        audit_numeric_claims(
+            container.database,
+            event_id=payload.event_id,
+            conversation_id=payload.conversation_id,
+            turn_id=payload.turn_id,
+            text=payload.text,
         )
     return {"ok": True}
 
@@ -357,12 +472,100 @@ def stream_health(stream_id: str) -> dict[str, Any]:
     return item.model_dump(mode="json")
 
 
+@app.get("/api/evidence/{source_ref:path}")
+def evidence(source_ref: str) -> dict[str, Any]:
+    if ":" not in source_ref:
+        raise HTTPException(400, detail={"code": "INVALID_SOURCE_REF"})
+    stream_id, record_id = source_ref.split(":", 1)
+    with container.database.session() as session:
+        record = session.scalars(
+            select(NormalizedRecordRow)
+            .where(
+                NormalizedRecordRow.stream_id == stream_id,
+                NormalizedRecordRow.record_id == record_id,
+            )
+            .order_by(NormalizedRecordRow.observed_at.desc())
+        ).first()
+        if record is None:
+            raise HTTPException(404, detail={"code": "EVIDENCE_NOT_FOUND"})
+        snapshot = session.get(SourceSnapshotRow, record.snapshot_id)
+        assert snapshot is not None
+        bundles = session.scalars(select(SourceBundleRow)).all()
+        bundle_ids = [
+            row.bundle_version
+            for row in bundles
+            if record.snapshot_id in json.loads(row.snapshot_ids_json)
+        ]
+        normalized = json.loads(record.payload_json)
+        metadata = json.loads(snapshot.metadata_json)
+        ref = normalized.get("source_ref") or {}
+        return {
+            "source_ref": source_ref,
+            "record": normalized,
+            "snapshot": {
+                "snapshot_id": snapshot.snapshot_id,
+                "content_hash": snapshot.content_hash,
+                "source_url": snapshot.source_url,
+                "provider": snapshot.provider,
+                "observed_at": snapshot.observed_at,
+                "ingested_at": snapshot.ingested_at,
+                "metadata": metadata,
+            },
+            "owner": ref.get("owner"),
+            "trust_tier": ref.get("trust_tier"),
+            "quality_flags": normalized.get("quality_flags", []),
+            "bundle_versions": bundle_ids,
+            "fallback": {
+                "used": bool(metadata.get("fallback_from")),
+                "from": metadata.get("fallback_from"),
+                "reason": metadata.get("fallback_reason"),
+            },
+        }
+
+
 @app.get("/api/dashboard/state")
 def dashboard_state() -> dict[str, Any]:
     spec = container.dashboard.current()
     if spec is None:
         raise HTTPException(503, detail="Dashboard not initialized")
     return spec.model_dump(mode="json")
+
+
+@app.post("/api/dashboard/initialize")
+async def initialize_dashboard(payload: DashboardInitializationRequest) -> dict[str, Any]:
+    """Compose the workspace when its persistent cooldown allows it, or on demand."""
+    status_before = container.planner.cooldown_status()
+    try:
+        changed = await container.planner.initialize(force=payload.force)
+    except Exception as exc:
+        logger.warning("Initial dashboard planner failed: %s", type(exc).__name__)
+        raise HTTPException(
+            502,
+            detail={
+                "code": "INITIAL_DASHBOARD_PLANNER_FAILED",
+                "message": "De actuele startcompositie kon niet worden opgebouwd.",
+            },
+        ) from exc
+    spec = container.dashboard.current()
+    assert spec is not None
+    status_after = container.planner.cooldown_status()
+    if changed:
+        await container.sources.publish(
+            {
+                "type": "dashboard_updated",
+                "dashboard_version": spec.version,
+                "source_bundle_version": spec.created_from_source_bundle_version,
+            }
+        )
+    return {
+        "changed": changed,
+        "forced": payload.force,
+        "dashboard_version": spec.version,
+        "decision": "redesigned" if changed else status_before["reason"],
+        "last_dashboard_update_at": status_after["last_dashboard_update_at"],
+        "next_automatic_at": status_after["next_automatic_at"],
+        "cooldown_minutes": status_after["cooldown_minutes"],
+    }
 
 
 @app.get("/api/dashboard/configs")
@@ -469,17 +672,19 @@ def metric_event(payload: MetricEvent) -> dict[str, bool]:
 def tool_audit(limit: int = 100) -> list[dict[str, Any]]:
     with container.database.session() as session:
         rows = session.scalars(
-            select(ToolAuditRow).order_by(ToolAuditRow.started_ns.desc()).limit(min(limit, 500))
+            select(ToolAuditRow).order_by(ToolAuditRow.created_at.desc()).limit(min(limit, 500))
         ).all()
         return [
             {
                 "audit_id": row.audit_id,
                 "conversation_id": row.conversation_id,
+                "turn_id": row.turn_id,
                 "tool_name": row.tool_name,
                 "arguments": json.loads(row.arguments_json),
                 "result": json.loads(row.result_json) if row.result_json else None,
                 "ok": row.ok,
                 "error_code": row.error_code,
+                "error": json.loads(row.error_json) if row.error_json else None,
                 "duration_ms": row.duration_ms,
                 "dashboard_before": row.dashboard_before,
                 "dashboard_after": row.dashboard_after,
@@ -565,6 +770,54 @@ def evaluation_turns_endpoint() -> list[dict[str, Any]]:
 def evaluation_cases() -> list[dict[str, Any]]:
     path = settings.root / "data/evaluation/cases.json"
     return json.loads(path.read_text()) if path.exists() else []
+
+
+@app.post("/api/evaluation/fixtures/select")
+async def select_fixture(payload: FixtureSelection) -> dict[str, Any]:
+    if not settings.fixture_only:
+        raise HTTPException(403, detail={"code": "FIXTURE_MODE_REQUIRED"})
+    try:
+        container.sources.select_fixture(payload.fixture)
+        bundle = await container.sources.initialize_fixture()
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "FIXTURE_NOT_FOUND"}) from exc
+    await container.sources.publish({"type": "source_bundle", "source_bundle_version": bundle})
+    return {"ok": True, "fixture": payload.fixture, "source_bundle_version": bundle}
+
+
+@app.post("/api/evaluation/fixtures/control")
+def control_fixture(payload: FixtureControl) -> dict[str, Any]:
+    if not settings.fixture_only:
+        raise HTTPException(403, detail={"code": "FIXTURE_MODE_REQUIRED"})
+    try:
+        container.sources.control_fixture(payload.stream_id, payload.mode)
+    except KeyError as exc:
+        raise HTTPException(404, detail={"code": "FIXTURE_STREAM_NOT_FOUND"}) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail={"code": "INVALID_FIXTURE_MODE"}) from exc
+    return {"ok": True, "stream_id": payload.stream_id, "mode": payload.mode}
+
+
+@app.get("/api/evaluation/claims")
+def claim_audits(limit: int = 200) -> list[dict[str, Any]]:
+    with container.database.session() as session:
+        rows = session.scalars(
+            select(ClaimAuditRow).order_by(ClaimAuditRow.created_at.desc()).limit(min(limit, 1000))
+        ).all()
+        return [
+            {
+                "claim_id": row.claim_id,
+                "conversation_id": row.conversation_id,
+                "turn_id": row.turn_id,
+                "event_id": row.event_id,
+                "claim_text": row.claim_text,
+                "numeric_value": row.numeric_value,
+                "status": row.status,
+                "evidence": json.loads(row.evidence_json),
+                "created_at": row.created_at,
+            }
+            for row in rows
+        ]
 
 
 def _csv_response(rows: list[dict[str, Any]], filename: str) -> StreamingResponse:

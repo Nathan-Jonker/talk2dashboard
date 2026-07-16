@@ -15,6 +15,37 @@ _UNIT_WORDS = {
     "cm": "centimeter",
     "mm": "millimeter",
     "%": "procent",
+    "hPa": "hectopascal",
+    "m³/s": "kubieke meter per seconde",
+    "µg/m3": "microgram per kubieke meter",
+    "°C": "graden Celsius",
+}
+
+_ABBREVIATIONS = {
+    "KNMI": "K N M I",
+    "RWS": "Rijkswaterstaat",
+    "NDW": "N D W",
+    "P2000": "P tweeduizend",
+    "NOS": "N O S",
+    "NS": "N S",
+    "LKI": "L K I",
+    "NO2": "N O twee",
+    "O3": "O drie",
+}
+
+_MONTHS = {
+    1: "januari",
+    2: "februari",
+    3: "maart",
+    4: "april",
+    5: "mei",
+    6: "juni",
+    7: "juli",
+    8: "augustus",
+    9: "september",
+    10: "oktober",
+    11: "november",
+    12: "december",
 }
 
 
@@ -34,6 +65,14 @@ def normalize_dutch_speech(text: str) -> str:
         return f"__PROTECTED_{len(protected) - 1}__"
 
     output = re.sub(r"https?://\S+|\b[a-f0-9]{16,}\b", protect, text, flags=re.IGNORECASE)
+    output = re.sub(
+        r"\b([0-3]?\d)[-/.]([01]?\d)[-/.](\d{4})\b",
+        lambda match: (
+            f"{_number(match.group(1))} "
+            f"{_MONTHS.get(int(match.group(2)), match.group(2))} {_number(match.group(3))}"
+        ),
+        output,
+    )
     output = re.sub(
         r"\b([01]?\d|2[0-3]):([0-5]\d)\b",
         lambda match: f"{_number(match.group(1))} uur {_number(match.group(2))}",
@@ -58,6 +97,8 @@ def normalize_dutch_speech(text: str) -> str:
             continue
         output = re.sub(rf"(?i)(?<=\s){re.escape(unit)}(?=\s|[.,;:!?]|$)", spoken, output)
     output = re.sub(r"\bPM10\b", "P M tien", output, flags=re.IGNORECASE)
+    for abbreviation, spoken in _ABBREVIATIONS.items():
+        output = re.sub(rf"\b{re.escape(abbreviation)}\b", spoken, output, flags=re.IGNORECASE)
     output = re.sub(r"\bde de ([A-Z])\b", r"de \1", output)
     for index, value in enumerate(protected):
         output = output.replace(f"__PROTECTED_{index}__", value)

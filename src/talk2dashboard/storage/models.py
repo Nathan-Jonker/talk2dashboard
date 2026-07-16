@@ -144,12 +144,14 @@ class ToolAuditRow(Base):
     __tablename__ = "tool_audit"
     audit_id: Mapped[str] = mapped_column(String, primary_key=True)
     conversation_id: Mapped[str | None] = mapped_column(String, index=True)
+    turn_id: Mapped[str | None] = mapped_column(String, index=True)
     request_id: Mapped[str] = mapped_column(String, unique=True, index=True)
     tool_name: Mapped[str] = mapped_column(String, index=True)
     arguments_json: Mapped[str] = mapped_column(Text)
     result_json: Mapped[str | None] = mapped_column(Text)
     ok: Mapped[bool] = mapped_column(Boolean)
     error_code: Mapped[str | None] = mapped_column(String)
+    error_json: Mapped[str | None] = mapped_column(Text)
     started_ns: Mapped[int] = mapped_column(Integer)
     ended_ns: Mapped[int] = mapped_column(Integer)
     duration_ms: Mapped[float] = mapped_column(Float)
@@ -198,4 +200,31 @@ class ProviderCallRow(Base):
     status: Mapped[str] = mapped_column(String)
     duration_ms: Mapped[float] = mapped_column(Float)
     usage_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[str] = mapped_column(String, index=True)
+
+
+class EphemeralLocationResolutionRow(Base):
+    __tablename__ = "ephemeral_location_resolutions"
+    resolution_id: Mapped[str] = mapped_column(String, primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String, index=True)
+    google_place_id: Mapped[str | None] = mapped_column(String)
+    display_label: Mapped[str] = mapped_column(Text)
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    attribution: Mapped[str] = mapped_column(String)
+    policy_version: Mapped[str] = mapped_column(String)
+    created_at: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[str] = mapped_column(String, index=True)
+
+
+class ClaimAuditRow(Base):
+    __tablename__ = "claim_audits"
+    claim_id: Mapped[str] = mapped_column(String, primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    turn_id: Mapped[str | None] = mapped_column(String, index=True)
+    event_id: Mapped[str] = mapped_column(String, index=True)
+    claim_text: Mapped[str] = mapped_column(Text)
+    numeric_value: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, index=True)
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[str] = mapped_column(String, index=True)

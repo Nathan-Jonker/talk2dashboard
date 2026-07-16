@@ -8,10 +8,17 @@ from statistics import mean, median, pstdev
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from talk2dashboard.deterministic import haversine_m, pearson
 from talk2dashboard.domain import DataHandle, HandleKind
+from talk2dashboard.errors import InsufficientBaselineError, InsufficientSeriesError
 from talk2dashboard.storage.database import Database
 from talk2dashboard.storage.models import DataHandleRow, NormalizedRecordRow, SourceBundleRow
+
+EVENT_STREAM_IDS = frozenset({"ndw_incidents", "p2000", "ns_disruptions", "nos_rss"})
+MEASUREMENT_STREAM_IDS = frozenset({"knmi_observations", "rws_water", "luchtmeetnet"})
+MAX_CROSS_SOURCE_RADIUS_M = 10_000
 
 
 def canonical_hash(value: Any, prefix: str = "qry") -> str:
@@ -65,7 +72,15 @@ class QueryEngine:
             latest_by_record[record.record_id] = json.loads(record.payload_json)
         return list(latest_by_record.values())
 
-    def execute(self, query_spec: dict[str, Any], bundle_version: str | None = None) -> DataHandle:
+    def prepare(
+        self, query_spec: dict[str, Any], bundle_version: str | None = None
+    ) -> tuple[HandleKind, dict[str, Any], list[dict[str, Any]], str]:
+        """Run the read-only query phase without persisting a handle.
+
+        Independent batch queries may prepare concurrently. Handle persistence stays
+        serial because SQLite only has one writer and concurrent inserts add lock
+        latency without improving query throughput.
+        """
         normalized = self._normalize_query(query_spec)
         input_handle_id = normalized.get("input_handle")
         if input_handle_id:
@@ -87,7 +102,11 @@ class QueryEngine:
             rows, kind = self._baseline(rows, normalized), "baseline"
         elif operation == "correlate":
             rows, kind = self._correlate(rows, normalized), "correlation"
-        return self.create_handle(kind, normalized, rows, bundle_version)
+        return kind, normalized, rows, bundle_version
+
+    def execute(self, query_spec: dict[str, Any], bundle_version: str | None = None) -> DataHandle:
+        kind, normalized, rows, resolved_bundle = self.prepare(query_spec, bundle_version)
+        return self.create_handle(kind, normalized, rows, resolved_bundle)
 
     def create_handle(
         self,
@@ -126,9 +145,26 @@ class QueryEngine:
                 "newest": max(observed) if observed else None,
             },
         )
+        # Rendering the same logical binding is common after a page refresh. Reuse
+        # the content-addressed handle instead of competing with source ingestion
+        # for a second, identical SQLite write transaction.
         with self.database.session() as session:
-            session.merge(
-                DataHandleRow(
+            stored = session.get(DataHandleRow, handle.handle_id)
+            if stored is not None:
+                return DataHandle.model_validate(json.loads(stored.payload_json)["handle"])
+
+        payload_json = json.dumps(
+            {
+                "handle": handle.model_dump(mode="json"),
+                "rows": rows,
+                "query_spec": query_spec,
+            },
+            ensure_ascii=True,
+        )
+        with self.database.session() as session:
+            session.execute(
+                sqlite_insert(DataHandleRow)
+                .values(
                     handle_id=handle.handle_id,
                     kind=handle.kind,
                     source_bundle_version=bundle_version,
@@ -136,17 +172,13 @@ class QueryEngine:
                     schema_fingerprint=schema_fingerprint,
                     created_at=handle.created_at.isoformat(),
                     expires_at=handle.expires_at.isoformat() if handle.expires_at else None,
-                    payload_json=json.dumps(
-                        {
-                            "handle": handle.model_dump(mode="json"),
-                            "rows": rows,
-                            "query_spec": query_spec,
-                        },
-                        ensure_ascii=True,
-                    ),
+                    payload_json=payload_json,
                 )
+                .on_conflict_do_nothing(index_elements=[DataHandleRow.handle_id])
             )
-        return handle
+            stored = session.get(DataHandleRow, handle.handle_id)
+            assert stored is not None
+            return DataHandle.model_validate(json.loads(stored.payload_json)["handle"])
 
     def load(self, handle_id: str) -> tuple[DataHandle, list[dict[str, Any]]]:
         payload = self.load_payload(handle_id)
@@ -211,6 +243,9 @@ class QueryEngine:
             "order",
             "lag",
             "method",
+            "origin_handle",
+            "origin_record_id",
+            "radius_m",
         }
         unknown = set(query) - allowed
         if unknown:
@@ -226,6 +261,33 @@ class QueryEngine:
             operation, record_kind = aliases[normalized["operation"]]
             normalized["operation"] = operation
             normalized.setdefault("record_kind", record_kind)
+        if normalized["operation"] == "query_nearby":
+            stream = normalized.get("stream")
+            if not stream or normalized.get("streams"):
+                raise ValueError("query_nearby requires exactly one target stream")
+            if stream in EVENT_STREAM_IDS:
+                normalized.setdefault("record_kind", "event")
+            elif stream in MEASUREMENT_STREAM_IDS:
+                normalized.setdefault("record_kind", "measurement")
+            else:
+                raise ValueError(f"query_nearby does not support target stream: {stream}")
+            origin_handle = normalized.get("origin_handle")
+            if not origin_handle:
+                raise ValueError("query_nearby requires origin_handle")
+            radius_m = int(normalized.get("radius_m", MAX_CROSS_SOURCE_RADIUS_M))
+            if not 1 <= radius_m <= MAX_CROSS_SOURCE_RADIUS_M:
+                raise ValueError("radius_m must be between 1 and 10000")
+            spatial_filter: dict[str, Any] = {
+                "op": "within_radius_handle",
+                "field": "location",
+                "handle_id": str(origin_handle),
+                "radius_m": radius_m,
+            }
+            if normalized.get("origin_record_id"):
+                spatial_filter["origin_record_id"] = str(normalized["origin_record_id"])
+            normalized["filters"] = [*(normalized.get("filters") or []), spatial_filter]
+            normalized.setdefault("sort", "distance_m")
+            normalized.setdefault("order", "asc")
         normalized.setdefault("limit", 500)
         normalized["limit"] = max(1, min(int(normalized["limit"]), 2000))
         parse_window(normalized.get("window"))
@@ -238,11 +300,9 @@ class QueryEngine:
             query.get("categories") or ([query["category"]] if query.get("category") else [])
         )
         window = parse_window(query.get("window"))
-        observed_values = [
-            self._as_datetime(row.get("observed_at")) for row in rows if row.get("observed_at")
-        ]
-        anchor = max(observed_values) if observed_values else datetime.now(UTC)
-        cutoff = anchor - window if window else None
+        filters = query.get("filters") or []
+        spatial_filters = self._prepare_spatial_filters(filters)
+        scalar_filters = [item for item in filters if item.get("op") != "within_radius_handle"]
         result: list[dict[str, Any]] = []
         for row in rows:
             if streams and row.get("stream_id") not in streams:
@@ -260,19 +320,40 @@ class QueryEngine:
                 continue
             if query.get("status") and row.get("status") != query["status"]:
                 continue
-            if cutoff and self._as_datetime(row.get("observed_at")) < cutoff:
-                continue
             text = str(query.get("text", "")).casefold()
             if text and text not in json.dumps(row, ensure_ascii=False).casefold():
                 continue
-            if not self._matches_filters(row, query.get("filters") or []):
+            if not self._matches_filters(row, scalar_filters):
                 continue
-            result.append(row)
+            candidate = dict(row)
+            if not self._apply_spatial_filters(candidate, spatial_filters):
+                continue
+            result.append(candidate)
+        if window:
+            observed_values = [
+                self._as_datetime(row.get("observed_at"))
+                for row in result
+                if row.get("observed_at")
+            ]
+            anchor = max(observed_values) if observed_values else datetime.now(UTC)
+            cutoff = anchor - window
+            result = [row for row in result if self._as_datetime(row.get("observed_at")) >= cutoff]
         sort_field = str(query.get("sort") or "observed_at")
-        result.sort(key=lambda item: str(item.get(sort_field, "")))
-        if query.get("order") == "desc":
+        result.sort(key=lambda item: self._sort_value(self._nested(item, sort_field)))
+        descending = query.get("order") == "desc"
+        if descending:
             result.reverse()
+        if descending or sort_field == "distance_m":
+            return result[: query["limit"]]
         return result[-query["limit"] :]
+
+    @staticmethod
+    def _sort_value(value: Any) -> tuple[int, float | str]:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return (0, float(value))
+        if value is None:
+            return (2, "")
+        return (1, str(value).casefold())
 
     @staticmethod
     def _nested(row: dict[str, Any], field: str) -> Any:
@@ -284,31 +365,13 @@ class QueryEngine:
         return value
 
     def _matches_filters(self, row: dict[str, Any], filters: list[dict[str, Any]]) -> bool:
-        allowed = {"eq", "in", "gte", "lte", "between", "contains", "within_radius_handle"}
+        allowed = {"eq", "in", "gte", "lte", "between", "contains"}
         for item in filters:
             operation = item.get("op")
             if operation not in allowed:
                 raise ValueError(f"Unsupported filter operation: {operation}")
             actual = self._nested(row, str(item.get("field", "")))
             expected = item.get("value")
-            if operation == "within_radius_handle":
-                location = row.get("location") or {}
-                origin_handle, origin_rows = self.load(str(item.get("handle_id")))
-                del origin_handle
-                origin = next(
-                    (
-                        candidate.get("location")
-                        for candidate in origin_rows
-                        if candidate.get("location")
-                    ),
-                    None,
-                )
-                radius_m = max(1, min(int(item.get("radius_m", 5000)), 100000))
-                if not origin or not location:
-                    return False
-                if self._distance_m(location, origin) > radius_m:
-                    return False
-                continue
             if operation == "eq" and actual != expected:
                 return False
             if operation == "in" and actual not in (expected or []):
@@ -327,21 +390,77 @@ class QueryEngine:
                 return False
         return True
 
+    def _prepare_spatial_filters(
+        self, filters: list[dict[str, Any]]
+    ) -> list[tuple[int, list[dict[str, Any]]]]:
+        prepared: list[tuple[int, list[dict[str, Any]]]] = []
+        for item in filters:
+            if item.get("op") != "within_radius_handle":
+                continue
+            handle_id = str(item.get("handle_id") or "")
+            if not handle_id:
+                raise ValueError("within_radius_handle requires handle_id")
+            radius_m = int(item.get("radius_m", 5000))
+            if not 1 <= radius_m <= MAX_CROSS_SOURCE_RADIUS_M:
+                raise ValueError("radius_m must be between 1 and 10000")
+            _handle, origin_rows = self.load(handle_id)
+            origin_record_id = item.get("origin_record_id")
+            if origin_record_id:
+                origin_rows = [
+                    row for row in origin_rows if str(row.get("record_id")) == str(origin_record_id)
+                ]
+                if not origin_rows:
+                    raise ValueError(f"origin_record_id not found in handle: {origin_record_id}")
+            located_origins = [row for row in origin_rows if row.get("location")]
+            if not located_origins:
+                raise ValueError("origin handle contains no records with coordinates")
+            prepared.append((radius_m, located_origins))
+        return prepared
+
+    def _apply_spatial_filters(
+        self,
+        row: dict[str, Any],
+        spatial_filters: list[tuple[int, list[dict[str, Any]]]],
+    ) -> bool:
+        if not spatial_filters:
+            return True
+        location = row.get("location")
+        if not location:
+            return False
+        for radius_m, origins in spatial_filters:
+            nearest = min(
+                (
+                    (self._distance_m(location, origin["location"]), origin)
+                    for origin in origins
+                ),
+                key=lambda item: item[0],
+            )
+            distance_m, origin = nearest
+            if distance_m > radius_m:
+                return False
+            origin_location = origin.get("location") or {}
+            row["distance_m"] = round(distance_m, 1)
+            row["distance_origin_record_id"] = str(origin.get("record_id") or "")
+            row["distance_origin_label"] = str(
+                origin_location.get("label") or origin.get("title") or origin.get("record_id") or ""
+            )
+        return True
+
     @staticmethod
     def _distance_m(a: dict[str, Any], b: dict[str, Any]) -> float:
-        radius = 6_371_000.0
-        lat1, lat2 = math.radians(float(a["latitude"])), math.radians(float(b["latitude"]))
-        d_lat = lat2 - lat1
-        d_lon = math.radians(float(b["longitude"]) - float(a["longitude"]))
-        h = math.sin(d_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(d_lon / 2) ** 2
-        return 2 * radius * math.asin(math.sqrt(h))
+        return haversine_m(
+            float(a["latitude"]),
+            float(a["longitude"]),
+            float(b["latitude"]),
+            float(b["longitude"]),
+        )
 
     def _aggregate(self, rows: list[dict[str, Any]], query: dict[str, Any]) -> list[dict[str, Any]]:
         fn = query.get("fn", "count")
         group_by = query.get("group_by")
         groups: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
-            key = str(row.get(group_by, "all")) if group_by else "all"
+            key = str(self._nested(row, group_by) or "onbekend") if group_by else "all"
             groups.setdefault(key, []).append(row)
         output = []
         for key, items in groups.items():
@@ -378,13 +497,24 @@ class QueryEngine:
                 )
             else:
                 raise ValueError(f"Unsupported aggregate fn: {fn}")
-            output.append({"group": key, "value": value, "fn": fn, "count": len(items)})
+            metrics = {str(item["metric"]) for item in items if item.get("metric")}
+            units = {str(item["unit"]) for item in items if item.get("unit")}
+            output.append(
+                {
+                    "group": key,
+                    "value": value,
+                    "fn": fn,
+                    "count": len(items),
+                    "metric": next(iter(metrics)) if len(metrics) == 1 else None,
+                    "unit": next(iter(units)) if len(units) == 1 else None,
+                }
+            )
         return output
 
     def _baseline(self, rows: list[dict[str, Any]], _query: dict[str, Any]) -> list[dict[str, Any]]:
         values = [float(row["value"]) for row in rows if isinstance(row.get("value"), (int, float))]
         if len(values) < 3:
-            raise ValueError("INSUFFICIENT_BASELINE: at least three observations are required")
+            raise InsufficientBaselineError(0.0)
         fixture_only = all(
             (row.get("source_ref") or {}).get("trust_tier") == "fixture" for row in rows
         )
@@ -393,9 +523,7 @@ class QueryEngine:
         )
         available_days = (observed[-1] - observed[0]).total_seconds() / 86400 if observed else 0
         if not fixture_only and available_days < 14:
-            raise ValueError(
-                f"INSUFFICIENT_BASELINE: {available_days:.1f} days available; fourteen required"
-            )
+            raise InsufficientBaselineError(available_days)
         current = values[-1]
         baseline = mean(values[:-1]) if len(values) > 1 else current
         deviation = pstdev(values[:-1]) if len(values) > 2 else 0.0
@@ -418,18 +546,12 @@ class QueryEngine:
         values_b = [float(row["value"]) for row in rows if row.get("metric") == b]
         count = min(len(values_a), len(values_b))
         if count < 3:
-            raise ValueError("INSUFFICIENT_SERIES: correlation needs three paired values")
-        aa, bb = values_a[-count:], values_b[-count:]
-        mean_a, mean_b = mean(aa), mean(bb)
-        numerator = sum((x - mean_a) * (y - mean_b) for x, y in zip(aa, bb, strict=True))
-        denominator = math.sqrt(
-            sum((x - mean_a) ** 2 for x in aa) * sum((y - mean_b) ** 2 for y in bb)
-        )
+            raise InsufficientSeriesError(count)
         return [
             {
                 "series_a": a,
                 "series_b": b,
-                "correlation": numerator / denominator if denominator else 0.0,
+                "correlation": pearson(values_a, values_b),
                 "sample_size": count,
                 "causality": False,
             }

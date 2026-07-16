@@ -1,27 +1,35 @@
 from __future__ import annotations
 
+import asyncio
 import json
-import math
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from statistics import mean
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from talk2dashboard.agent_catalog import NEARBY_PLACE_TYPES
 from talk2dashboard.dashboard import DashboardService
+from talk2dashboard.deterministic import haversine_m, pearson
 from talk2dashboard.domain import (
+    MAX_VISIBLE_PANELS as DASHBOARD_PANEL_LIMIT,
+)
+from talk2dashboard.domain import (
+    MULTI_BINDING_PANEL_TYPES,
     DashboardOperation,
     LogicalDataBinding,
     PanelSpec,
     ToolRequest,
     ToolResponse,
 )
+from talk2dashboard.errors import ContractError, InsufficientSeriesError
 from talk2dashboard.integrations.places import GeocodingClient, PlacesClient
 from talk2dashboard.integrations.search import BraveSearchClient
+from talk2dashboard.locations import EphemeralLocationStore
+from talk2dashboard.panel_contracts import compatibility_summary, evaluate_panel
 from talk2dashboard.query import QueryEngine
 from talk2dashboard.sources.service import SourceService
 from talk2dashboard.storage.database import Database
@@ -30,13 +38,23 @@ from talk2dashboard.storage.models import IncidentClusterRow, SessionPolicyRow, 
 CaptureCallable = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
-class ToolExecutionError(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
-        super().__init__(message)
-        self.code = code
+class ToolExecutionError(ContractError):
+    pass
 
 
 class ToolExecutor:
+    HIDDEN_PANEL_TYPES: ClassVar[set[str]] = {"source_health", "evidence"}
+    MAX_VISIBLE_PANELS: ClassVar[int] = DASHBOARD_PANEL_LIMIT
+    PARALLEL_QUERY_OPERATIONS: ClassVar[set[str]] = {
+        "query",
+        "query_events",
+        "query_measurements",
+        "query_series",
+        "query_nearby",
+        "aggregate",
+        "baseline",
+    }
+
     def __init__(
         self,
         database: Database,
@@ -56,6 +74,7 @@ class ToolExecutor:
         self.geocoding = geocoding
         self.search = search
         self.capture = capture
+        self.locations = EphemeralLocationStore(database)
 
     async def execute(self, name: str, request: ToolRequest) -> ToolResponse:
         with self.database.session() as session:
@@ -66,9 +85,13 @@ class ToolExecutor:
                 return ToolResponse(
                     ok=existing.ok,
                     result=json.loads(existing.result_json) if existing.result_json else None,
-                    error={"code": existing.error_code, "message": "Idempotent replay"}
-                    if not existing.ok
-                    else None,
+                    error=(
+                        json.loads(existing.error_json)
+                        if not existing.ok and existing.error_json
+                        else {"code": existing.error_code, "message": "Idempotent replay"}
+                        if not existing.ok
+                        else None
+                    ),
                     duration_ms=existing.duration_ms,
                     source_bundle_version=existing.source_bundle_version,
                     dashboard_version=existing.dashboard_after,
@@ -148,8 +171,8 @@ class ToolExecutor:
                 if name == "dashboard_batch"
                 else await handler(payload)
             )
-        except ToolExecutionError as exc:
-            ok, error = False, {"code": exc.code, "message": str(exc)}
+        except ContractError as exc:
+            ok, error = False, exc.as_dict()
         except (KeyError, ValueError) as exc:
             ok, error = False, {"code": "INVALID_ARGUMENT", "message": str(exc)[:400]}
         except Exception as exc:
@@ -173,6 +196,7 @@ class ToolExecutor:
         return ToolAuditRow(
             audit_id=audit_ref,
             conversation_id=request.conversation_id,
+            turn_id=request.turn_id,
             request_id=request.request_id,
             tool_name=name,
             arguments_json=json.dumps(request.payload, ensure_ascii=True),
@@ -181,6 +205,7 @@ class ToolExecutor:
             else None,
             ok=ok,
             error_code=error["code"] if error else None,
+            error_json=json.dumps(error, ensure_ascii=True, default=str) if error else None,
             started_ns=started,
             ended_ns=ended,
             duration_ms=(ended - started) / 1_000_000,
@@ -212,6 +237,14 @@ class ToolExecutor:
         )
 
     async def _tool_inspect_workspace(self, payload: dict[str, Any]) -> dict[str, Any]:
+        detail = str(payload.get("detail", "compact"))
+        ids = [str(value) for value in payload.get("ids") or []]
+        if detail not in {"ids", "compact", "full"}:
+            raise ToolExecutionError("INVALID_ARGUMENT", "detail must be ids, compact or full")
+        if detail == "full" and not 1 <= len(ids) <= 5:
+            raise ToolExecutionError(
+                "FULL_DETAIL_REQUIRES_IDS", "full detail requires one to five explicit IDs"
+            )
         sections = set(payload.get("sections") or [])
         aliases = {
             "stream_schema": "schemas",
@@ -221,7 +254,12 @@ class ToolExecutor:
         sections = {aliases.get(item, item) for item in sections}
         output: dict[str, Any] = {}
         if "streams" in sections or "schemas" in sections:
-            output["streams"] = [item.model_dump(mode="json") for item in self.sources.health()]
+            streams = [item.model_dump(mode="json") for item in self.sources.health()]
+            if ids:
+                streams = [item for item in streams if item["stream_id"] in ids]
+            output["streams"] = (
+                [item["stream_id"] for item in streams] if detail == "ids" else streams
+            )
         if "schemas" in sections:
             output["stream_contract"] = {
                 "events": [
@@ -248,12 +286,21 @@ class ToolExecutor:
                     "source_ref",
                     "quality_flags",
                 ],
-                "filter_ops": ["eq", "in", "gte", "lte", "between", "contains"],
+                "filter_ops": [
+                    "eq",
+                    "in",
+                    "gte",
+                    "lte",
+                    "between",
+                    "contains",
+                    "within_radius_handle",
+                ],
             }
         if "panels" in sections:
             output["panel_types"] = {
                 "kpi": ["aggregate", "baseline"],
                 "timeseries": ["series"],
+                "ranking": ["series", "aggregate"],
                 "comparison": ["aggregate", "baseline", "diff"],
                 "incident_timeline": ["events", "incident"],
                 "event_table": ["events"],
@@ -268,7 +315,12 @@ class ToolExecutor:
             }
         if "dashboard" in sections:
             spec = self.dashboard.current()
-            output["dashboard"] = spec.model_dump(mode="json") if spec else None
+            dashboard_data = spec.model_dump(mode="json") if spec else None
+            if dashboard_data and ids:
+                dashboard_data["panels"] = [
+                    panel for panel in dashboard_data["panels"] if panel["panel_id"] in ids
+                ]
+            output["dashboard"] = dashboard_data
         if "policy" in sections:
             output["policy"] = self.policy()
         if "incidents" in sections:
@@ -278,7 +330,19 @@ class ToolExecutor:
                     .order_by(IncidentClusterRow.last_seen_at.desc())
                     .limit(20)
                 ).all()
-                output["incidents"] = [json.loads(row.payload_json) for row in rows]
+                incidents = [json.loads(row.payload_json) for row in rows]
+                if ids:
+                    incidents = [item for item in incidents if item["incident_id"] in ids]
+                output["incidents"] = (
+                    [item["incident_id"] for item in incidents] if detail == "ids" else incidents
+                )
+        encoded = json.dumps(output, ensure_ascii=True, default=str)
+        if len(encoded.encode()) > 48_000:
+            raise ToolExecutionError(
+                "INSPECT_PAYLOAD_TOO_LARGE",
+                "Selecteer minder IDs of gebruik compact detail.",
+                details={"limit_bytes": 48000, "actual_bytes": len(encoded.encode())},
+            )
         return output
 
     @staticmethod
@@ -293,17 +357,93 @@ class ToolExecutor:
             }
         return value
 
+    @staticmethod
+    def _alias_references(value: Any) -> set[str]:
+        if isinstance(value, str) and value.startswith("@"):
+            return {value[1:]}
+        if isinstance(value, list):
+            return set().union(*(ToolExecutor._alias_references(item) for item in value))
+        if isinstance(value, dict):
+            return set().union(*(ToolExecutor._alias_references(item) for item in value.values()))
+        return set()
+
+    @staticmethod
+    def _data_operation_parts(operation: dict[str, Any], index: int) -> tuple[str, dict[str, Any]]:
+        nested_query = operation.get("query")
+        raw_query = dict(nested_query if isinstance(nested_query, dict) else operation)
+        nested_save_as = raw_query.pop("save_as", None)
+        save_as = str(
+            operation.get("save_as") or nested_save_as or f"result_{index + 1}"
+        ).removeprefix("@")
+        return save_as, raw_query
+
+    @staticmethod
+    def _normalize_data_query(raw_query: dict[str, Any], aliases: dict[str, str]) -> dict[str, Any]:
+        query_spec = ToolExecutor._resolve_aliases(raw_query, aliases)
+        normalized_filters = []
+        for filter_item in query_spec.get("filters") or []:
+            normalized_filter = dict(filter_item)
+            if "value_number" in normalized_filter:
+                normalized_filter["value"] = normalized_filter.pop("value_number")
+            elif "values" in normalized_filter:
+                normalized_filter["value"] = normalized_filter.pop("values")
+            normalized_filters.append(normalized_filter)
+        if normalized_filters:
+            query_spec["filters"] = normalized_filters
+        return query_spec
+
     async def _tool_data_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
         operations = payload.get("operations") or []
         if not isinstance(operations, list) or not 1 <= len(operations) <= 12:
             raise ToolExecutionError("INVALID_BATCH", "operations must contain one to twelve items")
+        operation_parts = [
+            self._data_operation_parts(operation, index)
+            for index, operation in enumerate(operations)
+        ]
+        save_names = [save_as for save_as, _raw_query in operation_parts]
+        if len(set(save_names)) != len(save_names):
+            raise ToolExecutionError("DUPLICATE_ALIAS", "Elke data_batch-alias moet uniek zijn.")
+
+        bundle_version = await asyncio.to_thread(self.query.latest_bundle)
+        parallel_inputs: list[tuple[int, dict[str, Any]]] = []
+        for index, (_save_as, raw_query) in enumerate(operation_parts):
+            operation_name = str(raw_query.get("operation", "query"))
+            if operation_name in self.PARALLEL_QUERY_OPERATIONS and not self._alias_references(
+                raw_query
+            ):
+                parallel_inputs.append((index, self._normalize_data_query(raw_query, {})))
+        parallel_prepared = await asyncio.gather(
+            *(
+                asyncio.to_thread(self.query.prepare, query_spec, bundle_version)
+                for _index, query_spec in parallel_inputs
+            )
+        )
+        precomputed_queries = {
+            index: prepared
+            for (index, _query_spec), prepared in zip(
+                parallel_inputs, parallel_prepared, strict=True
+            )
+        }
+
         aliases: dict[str, str] = {}
         results = []
-        for index, operation in enumerate(operations):
-            query_spec = self._resolve_aliases(dict(operation.get("query") or operation), aliases)
-            save_as = query_spec.pop("save_as", operation.get("save_as", f"result_{index + 1}"))
+        queried_streams: set[str] = set()
+        for index, (save_as, raw_query) in enumerate(operation_parts):
+            query_spec = self._normalize_data_query(raw_query, aliases)
+            queried_streams.update(str(item) for item in query_spec.get("streams") or [])
+            if query_spec.get("stream"):
+                queried_streams.add(str(query_spec["stream"]))
             operation_name = query_spec.get("operation", "query")
-            if operation_name == "get_incident":
+            if index in precomputed_queries:
+                kind, normalized_query, rows, resolved_bundle = precomputed_queries[index]
+                handle = await asyncio.to_thread(
+                    self.query.create_handle,
+                    kind,
+                    normalized_query,
+                    rows,
+                    resolved_bundle,
+                )
+            elif operation_name == "get_incident":
                 with self.database.session() as session:
                     row = session.scalars(
                         select(IncidentClusterRow)
@@ -341,8 +481,10 @@ class ToolExecutor:
                 )
             elif operation_name == "resolve_location":
                 text = str(query_spec["text"])
-                source_handle = self.query.execute(
-                    {"operation": "query_events", "text": text, "limit": 20}
+                source_handle = await asyncio.to_thread(
+                    self.query.execute,
+                    {"operation": "query_events", "text": text, "limit": 20},
+                    bundle_version,
                 )
                 _, source_rows = self.query.load(source_handle.handle_id)
                 located = [row for row in source_rows if row.get("location")]
@@ -358,27 +500,19 @@ class ToolExecutor:
                             "LOCATION_NOT_RESOLVED",
                             "Google vond geen locatie; verduidelijk de plaats.",
                         )
-                    rows = [
+                    resolutions = [self.locations.put(text, item) for item in matches]
+                    results.append(
                         {
-                            "record_id": f"ephemeral:{item.get('place_id')}",
-                            "title": item.get("display_label"),
-                            "location": {
-                                "latitude": (item.get("location") or {}).get("lat"),
-                                "longitude": (item.get("location") or {}).get("lng"),
-                            },
-                            "google_place_id": item.get("place_id"),
-                            "temporary": True,
-                            "attribution": "Google Maps",
+                            "alias": save_as,
+                            "resolution_id": resolutions[0].resolution_id,
+                            "kind": "ephemeral_location",
+                            "row_count": len(resolutions),
+                            "preview": [item.model_dump(mode="json") for item in resolutions],
+                            "summary": "Tijdelijke Google-locatieresolutie; verloopt na vijftien minuten.",
                         }
-                        for item in matches
-                    ]
-                    handle = self.query.create_handle(
-                        "location",
-                        query_spec,
-                        rows,
-                        source_handle.source_bundle_version,
-                        ttl_seconds=900,
                     )
+                    aliases[str(save_as)] = resolutions[0].resolution_id
+                    continue
                 else:
                     raise ToolExecutionError(
                         "LOCATION_NOT_RESOLVED",
@@ -397,16 +531,7 @@ class ToolExecutor:
                 ]
                 count = min(len(left_values), len(right_values))
                 if count < 3:
-                    raise ToolExecutionError(
-                        "INSUFFICIENT_SERIES", "Correlatie vereist drie gekoppelde waarden."
-                    )
-                aa, bb = left_values[-count:], right_values[-count:]
-                mean_a, mean_b = mean(aa), mean(bb)
-                numerator = sum((a - mean_a) * (b - mean_b) for a, b in zip(aa, bb, strict=True))
-                denominator = math.sqrt(
-                    sum((value - mean_a) ** 2 for value in aa)
-                    * sum((value - mean_b) ** 2 for value in bb)
-                )
+                    raise InsufficientSeriesError(count)
                 handle = self.query.create_handle(
                     "correlation",
                     query_spec,
@@ -414,7 +539,7 @@ class ToolExecutor:
                         {
                             "series_a": left.handle_id,
                             "series_b": query_spec["series_b"],
-                            "correlation": numerator / denominator if denominator else 0.0,
+                            "correlation": pearson(left_values, right_values),
                             "sample_size": count,
                             "causality": False,
                         }
@@ -422,106 +547,397 @@ class ToolExecutor:
                     left.source_bundle_version,
                 )
             else:
-                handle = self.query.execute(query_spec)
+                handle = await asyncio.to_thread(self.query.execute, query_spec, bundle_version)
             aliases[str(save_as)] = handle.handle_id
-            results.append(
-                {
-                    "alias": save_as,
-                    "handle_id": handle.handle_id,
-                    "kind": handle.kind,
-                    "row_count": handle.row_count,
-                    "fields": handle.fields,
-                    "preview": handle.preview,
-                    "summary": handle.summary,
-                    "freshness": handle.freshness,
+            result_item: dict[str, Any] = {
+                "alias": save_as,
+                "handle_id": handle.handle_id,
+                "kind": handle.kind,
+                "row_count": handle.row_count,
+                "fields": handle.fields,
+                "preview": handle.preview,
+                "summary": handle.summary,
+                "freshness": handle.freshness,
+            }
+            _stored_handle, result_rows = self.query.load(handle.handle_id)
+            result_item["panel_compatibility"] = compatibility_summary(handle.kind, result_rows)
+            if handle.kind == "series":
+                profile = result_item["panel_compatibility"]["profile"]
+                result_item["series_profile"] = {
+                    "distinct_timestamps": profile["distinct_timestamps"],
+                    "series_count": profile["series_count"],
+                    "series_with_history": profile["series_with_history"],
+                    "max_points_per_series": profile["max_points_per_series"],
+                    "supports_timeseries": "timeseries"
+                    in result_item["panel_compatibility"]["recommended_panels"],
+                    "requested_window": query_spec.get("window"),
+                    "history_mode": (
+                        "current_snapshot"
+                        if query_spec.get("stream") == "rws_water"
+                        else "available_records"
+                    ),
+                    "recommended_panel": (
+                        "timeseries"
+                        if "timeseries" in result_item["panel_compatibility"]["recommended_panels"]
+                        else "ranking_or_map"
+                    ),
                 }
-            )
-        return {"results": results, "aliases": aliases}
+            results.append(result_item)
+        health = {
+            item.stream_id: {
+                "stream_id": item.stream_id,
+                "status": item.status,
+                "provider": item.provider,
+                "newest_record_at": item.newest_record_at,
+                "record_count": item.record_count,
+                "fixture": item.fixture,
+                "fallback": item.fallback,
+            }
+            for item in self.sources.health()
+            if not queried_streams or item.stream_id in queried_streams
+        }
+        return {
+            "results": results,
+            "aliases": aliases,
+            "source_status": list(health.values()),
+        }
 
     async def _tool_dashboard_batch(
         self, payload: dict[str, Any], *, session: Session | None = None
     ) -> dict[str, Any]:
         expected = int(payload["expected_version"])
         operations = [self._dashboard_operation(item) for item in payload.get("operations", [])]
+        current = self.dashboard.current(session=session)
+        assert current is not None
+        operations, auto_removed = self._compose_dashboard_operations(
+            str(payload.get("composition_mode", "adaptive")), operations, current
+        )
         spec = self.dashboard.apply(
             expected,
             operations,
             created_by="agent",
             reason=str(payload.get("reason", "agent update"))[:240],
             conversation_id=payload.get("conversation_id"),
+            source_bundle_version=self.sources.latest_bundle_version(),
             session=session,
         )
-        return {"dashboard": spec.model_dump(mode="json"), "status": "pending_render"}
+        return {
+            "dashboard": spec.model_dump(mode="json"),
+            "status": "pending_render",
+            "composition_mode": str(payload.get("composition_mode", "adaptive")),
+            "auto_removed_panel_ids": auto_removed,
+        }
+
+    def _compose_dashboard_operations(
+        self,
+        mode: str,
+        operations: list[DashboardOperation],
+        current: Any,
+    ) -> tuple[list[DashboardOperation], list[str]]:
+        if mode not in {"adaptive", "merge", "replace_visible"}:
+            raise ToolExecutionError(
+                "INVALID_COMPOSITION_MODE",
+                "composition_mode moet adaptive, merge of replace_visible zijn.",
+            )
+        current_panels = {panel.panel_id: panel for panel in current.panels}
+        touched_ids = {
+            operation.panel.panel_id
+            for operation in operations
+            if operation.op == "upsert_panel" and operation.panel is not None
+        }
+        removed_ids = {
+            operation.panel_id
+            for operation in operations
+            if operation.op == "remove_panel" and operation.panel_id
+        }
+        auto_removed: list[str] = []
+        composed = list(operations)
+        if mode == "replace_visible":
+            replacements = [
+                DashboardOperation(op="remove_panel", panel_id=panel.panel_id)
+                for panel in current.panels
+                if panel.panel_type not in self.HIDDEN_PANEL_TYPES
+                and panel.panel_id not in touched_ids
+                and panel.panel_id not in removed_ids
+            ]
+            auto_removed.extend(
+                operation.panel_id for operation in replacements if operation.panel_id
+            )
+            composed = replacements + composed
+
+        projected = dict(current_panels)
+        for operation in composed:
+            if operation.op == "remove_panel" and operation.panel_id:
+                projected.pop(operation.panel_id, None)
+            elif operation.op == "upsert_panel" and operation.panel:
+                projected[operation.panel.panel_id] = operation.panel
+        visible = [
+            panel for panel in projected.values() if panel.panel_type not in self.HIDDEN_PANEL_TYPES
+        ]
+        if len(visible) > self.MAX_VISIBLE_PANELS and mode == "adaptive":
+            removable = sorted(
+                (panel for panel in visible if panel.panel_id not in touched_ids),
+                key=lambda panel: (panel.order, panel.panel_id),
+                reverse=True,
+            )
+            while len(visible) > self.MAX_VISIBLE_PANELS and removable:
+                panel = removable.pop(0)
+                composed.insert(0, DashboardOperation(op="remove_panel", panel_id=panel.panel_id))
+                auto_removed.append(panel.panel_id)
+                visible = [item for item in visible if item.panel_id != panel.panel_id]
+        if len(visible) > self.MAX_VISIBLE_PANELS:
+            raise ToolExecutionError(
+                "PANEL_LIMIT_EXCEEDED",
+                "Een dashboard mag maximaal twaalf zichtbare panelen bevatten.",
+                details={
+                    "maximum": self.MAX_VISIBLE_PANELS,
+                    "projected": len(visible),
+                    "hint": "Gebruik replace_visible of verwijder bestaande panelen in dezelfde batch.",
+                },
+            )
+        return composed, list(dict.fromkeys(auto_removed))
 
     def _dashboard_operation(self, item: dict[str, Any]) -> DashboardOperation:
+        if item.get("op") == "set_meta" and (item.get("values") or {}).get("layout_template"):
+            return DashboardOperation.model_validate({**item, "op": "set_layout_template"})
+        if item.get("op") == "set_map_mode":
+            values = dict(item.get("values") or {})
+            for key in ("panel_id", "panel_type"):
+                if key not in values and item.get(key) is not None:
+                    values[key] = item[key]
+            return DashboardOperation.model_validate({**item, "values": values})
         if item.get("op") != "upsert_panel" or item.get("panel"):
             return DashboardOperation.model_validate(item)
         panel_data = {key: value for key, value in item.items() if key != "op"}
         binding_data = panel_data.pop("binding", None)
+        bindings_data = panel_data.pop("bindings", None)
         seed_handle_id = panel_data.pop("seed_handle_id", None)
-        if seed_handle_id and binding_data is None:
-            binding_data = {"seed_handle_id": seed_handle_id}
-        binding = None
-        if binding_data:
-            handle_id = binding_data.get("seed_handle_id") or binding_data.get("handle_id")
-            if not handle_id:
-                raise ToolExecutionError(
-                    "BINDING_HANDLE_REQUIRED", "Binding vereist seed_handle_id"
-                )
-            payload = self.query.load_payload(str(handle_id))
-            handle = payload["handle"]
-            query_spec = payload.get("query_spec")
-            if not query_spec:
-                raise ToolExecutionError("BINDING_QUERY_MISSING", "Handle bevat geen logical query")
-            field_bindings = binding_data.get("field_bindings") or {}
-            fields = set(handle["fields"])
-            invalid = [
-                value for value in field_bindings.values() if value.split(".")[0] not in fields
-            ]
-            if invalid:
-                raise ToolExecutionError(
-                    "INVALID_FIELD_BINDING", f"Onbekende handlevelden: {', '.join(invalid)}"
-                )
-            binding = LogicalDataBinding(
-                binding_id=f"bnd_{uuid4().hex[:20]}",
-                kind=handle["kind"],
-                query_hash=handle["query_hash"],
-                query_spec=query_spec,
-                field_bindings=field_bindings,
-                refresh_policy=binding_data.get("refresh_policy", "visible"),
-                schema_fingerprint=handle["schema_fingerprint"],
+        if seed_handle_id:
+            binding_data = dict(binding_data or {})
+            binding_data.setdefault("seed_handle_id", seed_handle_id)
+        if bindings_data is not None and binding_data:
+            raise ToolExecutionError(
+                "AMBIGUOUS_BINDINGS",
+                "Gebruik binding voor een enkelvoudig panel of bindings voor een samengestelde weergave, niet beide.",
             )
-        panel = PanelSpec.model_validate({**panel_data, "binding": binding})
+        if bindings_data is not None:
+            if not isinstance(bindings_data, list) or not 1 <= len(bindings_data) <= 6:
+                raise ToolExecutionError(
+                    "INVALID_PANEL_BINDING_COUNT",
+                    "Een samengesteld panel ondersteunt een tot zes databindings.",
+                )
+            if panel_data.get("panel_type") not in MULTI_BINDING_PANEL_TYPES:
+                raise ToolExecutionError(
+                    "MULTI_BINDING_UNSUPPORTED",
+                    f"Meerdere bindings worden niet ondersteund door {panel_data.get('panel_type')}.",
+                )
+            raw_bindings = bindings_data
+        else:
+            raw_bindings = [binding_data] if binding_data else []
+
+        panel_type = str(panel_data.get("panel_type") or "")
+        bindings = [
+            self._logical_binding(
+                data,
+                panel_type,
+                allow_comparison_scalar=len(raw_bindings) > 1,
+            )
+            for data in raw_bindings
+        ]
+        query_hashes = [binding.query_hash for binding in bindings]
+        if len(query_hashes) != len(set(query_hashes)):
+            raise ToolExecutionError(
+                "DUPLICATE_PANEL_BINDING",
+                "Dezelfde bronquery mag maar eenmaal aan een panel binden.",
+            )
+        if panel_type == "comparison" and len(bindings) > 1:
+            numeric_values = 0
+            for data in raw_bindings:
+                handle_id = data.get("seed_handle_id") or data.get("handle_id")
+                rows = list(self.query.load_payload(str(handle_id)).get("rows") or [])
+                numeric_values += sum(
+                    isinstance(row.get("current", row.get("value")), (int, float)) for row in rows
+                )
+            if numeric_values < 2:
+                raise ToolExecutionError(
+                    "COMPARISON_REQUIRES_VALUES",
+                    "Een samengestelde vergelijking vereist minstens twee numerieke waarden.",
+                    details={"available_values": numeric_values, "required_values": 2},
+                )
+        panel = PanelSpec.model_validate(
+            {
+                **panel_data,
+                "binding": bindings[0] if bindings else None,
+                "layer_bindings": bindings[1:],
+            }
+        )
         return DashboardOperation(op="upsert_panel", panel=panel)
+
+    def _logical_binding(
+        self,
+        binding_data: dict[str, Any],
+        panel_type: str,
+        *,
+        allow_comparison_scalar: bool = False,
+    ) -> LogicalDataBinding:
+        if not isinstance(binding_data, dict):
+            raise ToolExecutionError("INVALID_BINDING", "Binding moet een object zijn.")
+        handle_id = binding_data.get("seed_handle_id") or binding_data.get("handle_id")
+        if not handle_id:
+            raise ToolExecutionError("BINDING_HANDLE_REQUIRED", "Binding vereist seed_handle_id")
+        payload = self.query.load_payload(str(handle_id))
+        handle = payload["handle"]
+        query_spec = payload.get("query_spec")
+        if not query_spec:
+            raise ToolExecutionError("BINDING_QUERY_MISSING", "Handle bevat geen logical query")
+        field_bindings = binding_data.get("field_bindings") or {}
+        fields = set(handle["fields"])
+        invalid = [value for value in field_bindings.values() if value.split(".")[0] not in fields]
+        if invalid:
+            raise ToolExecutionError(
+                "INVALID_FIELD_BINDING", f"Onbekende handlevelden: {', '.join(invalid)}"
+            )
+        rows = list(payload.get("rows") or [])
+        compatibility = evaluate_panel(panel_type, str(handle["kind"]), rows, field_bindings)
+        if panel_type == "comparison" and allow_comparison_scalar and not compatibility.compatible:
+            compatibility = evaluate_panel("kpi", str(handle["kind"]), rows, field_bindings)
+        if not compatibility.compatible:
+            details = {
+                "panel_type": panel_type,
+                "handle_kind": handle["kind"],
+                **compatibility.details,
+                "alternatives": compatibility_summary(str(handle["kind"]), rows)[
+                    "recommended_panels"
+                ],
+            }
+            if compatibility.code == "INSUFFICIENT_SERIES":
+                details["available_timestamps"] = compatibility.details["profile"][
+                    "max_points_per_series"
+                ]
+                details["required_timestamps"] = 2
+            raise ToolExecutionError(compatibility.code, compatibility.message, details=details)
+        return LogicalDataBinding(
+            binding_id=f"bnd_{uuid4().hex[:20]}",
+            kind=handle["kind"],
+            query_hash=handle["query_hash"],
+            query_spec=query_spec,
+            field_bindings=field_bindings,
+            refresh_policy=binding_data.get("refresh_policy", "visible"),
+            schema_fingerprint=handle["schema_fingerprint"],
+        )
 
     async def _tool_nearby_places(self, payload: dict[str, Any]) -> dict[str, Any]:
         origin_handle = payload.get("origin_handle")
+        resolution_id = payload.get("resolution_id")
+        location_ref = payload.get("location_ref")
+        origin_text = str(payload.get("origin_text") or "").strip()
+        if isinstance(origin_handle, str) and origin_handle.startswith("locres_"):
+            resolution_id, origin_handle = origin_handle, None
+        if isinstance(location_ref, str) and location_ref.startswith("locres_"):
+            resolution_id, location_ref = location_ref, None
+        origin_label: str | None = None
         if origin_handle:
             handle, rows = self.query.load(str(origin_handle))
-        elif payload.get("location_ref"):
+            bundle_version = handle.source_bundle_version
+            origin_reference = handle.handle_id
+        elif resolution_id:
+            try:
+                resolution = self.locations.get(str(resolution_id))
+            except KeyError as exc:
+                raise ToolExecutionError(
+                    "LOCATION_RESOLUTION_EXPIRED",
+                    "De tijdelijke locatieresolutie is onbekend of verlopen; resolveer de plaats opnieuw.",
+                    retryable=True,
+                ) from exc
+            rows = [
+                {"location": {"latitude": resolution.latitude, "longitude": resolution.longitude}}
+            ]
+            bundle_version = self.query.latest_bundle()
+            origin_reference = resolution.resolution_id
+            origin_label = resolution.display_label
+        elif origin_text:
+            try:
+                geocoded = await self.geocoding.resolve(origin_text)
+            except RuntimeError as exc:
+                if str(exc) == "GOOGLE_GEOCODING_NOT_CONFIGURED":
+                    raise ToolExecutionError(
+                        "GOOGLE_GEOCODING_NOT_CONFIGURED",
+                        "Google Geocoding is niet geconfigureerd voor plaatsnamen.",
+                    ) from exc
+                raise
+            matches = geocoded.get("matches") or []
+            if not matches:
+                raise ToolExecutionError(
+                    "LOCATION_NOT_RESOLVED",
+                    "Google vond geen eenduidige locatie; verduidelijk de plaats of het adres.",
+                )
+            resolution = self.locations.put(origin_text, matches[0])
+            rows = [
+                {"location": {"latitude": resolution.latitude, "longitude": resolution.longitude}}
+            ]
+            bundle_version = self.query.latest_bundle()
+            origin_reference = resolution.resolution_id
+            origin_label = resolution.display_label
+        elif location_ref:
             handle = self.query.execute({"operation": "query", "limit": 2000})
             _, all_rows = self.query.load(handle.handle_id)
             rows = [
                 row
                 for row in all_rows
-                if (row.get("location") or {}).get("location_id") == payload["location_ref"]
+                if (row.get("location") or {}).get("location_id") == location_ref
             ]
+            bundle_version = handle.source_bundle_version
+            origin_reference = str(location_ref)
         else:
             raise ToolExecutionError(
-                "ORIGIN_REQUIRED", "origin_handle of bestaande location_ref is verplicht"
+                "ORIGIN_REQUIRED",
+                "origin_text, origin_handle, bestaande location_ref of tijdelijke resolution_id is verplicht",
             )
         location = next((row.get("location") for row in rows if row.get("location")), None)
         if not location:
             raise ToolExecutionError("NO_LOCATION", "origin handle has no trusted location")
-        data = await self.places.nearby(
-            latitude=float(location["latitude"]),
-            longitude=float(location["longitude"]),
-            included_types=payload.get("included_types") or ["hospital"],
-            radius_m=int(payload.get("radius_m", 5000)),
-            max_results=int(payload.get("max_results", 10)),
-            rank=payload.get("rank", "distance"),
-            fields_profile=payload.get("fields_profile", "minimal"),
-        )
+        origin_latitude = float(location["latitude"])
+        origin_longitude = float(location["longitude"])
+        raw_types = payload.get("included_types") or ["hospital"]
+        if not isinstance(raw_types, list):
+            raise ToolExecutionError(
+                "INVALID_PLACE_TYPES",
+                "included_types moet een lijst met voorzieningstypen zijn.",
+            )
+        requested_types = list(dict.fromkeys(str(place_type) for place_type in raw_types))
+        allowed_types = set(NEARBY_PLACE_TYPES)
+        included_types = [
+            place_type for place_type in requested_types if place_type in allowed_types
+        ]
+        ignored_types = [
+            str(place_type) for place_type in requested_types if place_type not in included_types
+        ]
+        if not included_types:
+            raise ToolExecutionError(
+                "UNSUPPORTED_PLACE_TYPES",
+                "Geen van de gevraagde voorzieningstypen wordt ondersteund.",
+                details={
+                    "requested_types": requested_types,
+                    "allowed_types": sorted(allowed_types),
+                },
+            )
+        try:
+            data = await self.places.nearby(
+                latitude=origin_latitude,
+                longitude=origin_longitude,
+                included_types=included_types,
+                radius_m=int(payload.get("radius_m", 5000)),
+                max_results=int(payload.get("max_results", 10)),
+                rank=payload.get("rank", "distance"),
+                fields_profile=payload.get("fields_profile", "minimal"),
+            )
+        except RuntimeError as exc:
+            if str(exc) == "GOOGLE_PLACES_NOT_CONFIGURED":
+                raise ToolExecutionError(
+                    "GOOGLE_PLACES_NOT_CONFIGURED",
+                    "Google Places is niet geconfigureerd voor voorzieningen in de buurt.",
+                ) from exc
+            raise
         rows = [
             {
                 "record_id": item.get("id"),
@@ -533,25 +949,50 @@ class ToolExecutor:
                 },
                 "google_maps_uri": item.get("googleMapsUri"),
                 "attribution": "Google Maps",
+                "distance_m": round(
+                    haversine_m(
+                        origin_latitude,
+                        origin_longitude,
+                        float((item.get("location") or {})["latitude"]),
+                        float((item.get("location") or {})["longitude"]),
+                    )
+                ),
             }
             for item in data["places"]
+            if (item.get("location") or {}).get("latitude") is not None
+            and (item.get("location") or {}).get("longitude") is not None
         ]
+        if payload.get("rank", "distance") == "distance":
+            rows.sort(key=lambda item: item["distance_m"])
         places_handle = self.query.create_handle(
             "places",
             {
                 "operation": "nearby_places",
-                "origin_handle": handle.handle_id,
+                "origin": origin_reference,
                 **data["request"],
             },
             rows,
-            handle.source_bundle_version,
+            bundle_version,
         )
         return {
-            "origin_handle": handle.handle_id,
+            "origin": {"reference": origin_reference, "label": origin_label},
             "places_handle": places_handle.model_dump(mode="json"),
             "preview": rows[:5],
+            "nearest": rows[0] if rows else None,
             "attribution": data["attribution"],
             "budget": data["budget"],
+            "warnings": (
+                [
+                    {
+                        "code": "PLACE_TYPES_IGNORED",
+                        "message": "Niet-ondersteunde voorzieningstypen zijn overgeslagen.",
+                        "ignored_types": ignored_types,
+                        "used_types": included_types,
+                    }
+                ]
+                if ignored_types
+                else []
+            ),
         }
 
     async def _tool_capture_dashboard(self, payload: dict[str, Any]) -> dict[str, Any]:

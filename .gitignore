@@ -13,8 +13,11 @@ voice_dock/node_modules/
 voice_dock/dist/
 *.tsbuildinfo
 data/*.sqlite3
+data/*.sqlite3-*
 data/assets/
 data/raw/
+artifacts/
 playwright-report/
 test-results/
 .DS_Store
+.hallmark/

@@ -15,18 +15,23 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.engine = create_engine(
             f"sqlite:///{path}",
-            connect_args={"check_same_thread": False},
+            connect_args={"check_same_thread": False, "timeout": 30},
             future=True,
         )
         event.listen(self.engine, "connect", self._configure_sqlite)
+        # WAL is database-wide and persistent. Setting it on every pooled
+        # connection can request competing exclusive locks when parallel
+        # read-only tool queries open connections at the same time.
+        with self.engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
         self.sessions = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     @staticmethod
     def _configure_sqlite(dbapi_connection, _connection_record) -> None:  # type: ignore[no-untyped-def]
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
     def initialize(self) -> None:
@@ -44,6 +49,8 @@ class Database:
             },
             "tool_audit": {
                 "created_at": "VARCHAR NOT NULL DEFAULT ''",
+                "error_json": "TEXT",
+                "turn_id": "VARCHAR",
             },
         }
         with self.engine.begin() as connection:

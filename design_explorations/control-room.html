@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="RWS Control Room, een statisch Talk2Dashboard-designconcept.">
+  <title>RWS Control Room · Talk2Dashboard</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="shared.css">
+  <link rel="stylesheet" href="control-room.css">
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Naar het werkbeeld</a>
+  <nav class="concept-nav" aria-label="Designrichtingen">
+    <a class="concept-nav__brand" href="index.html">Talk2Dashboard · studies</a>
+    <div class="concept-nav__links"><a aria-current="page" href="control-room.html">01 Control</a><a href="atlas-focus.html">02 Atlas</a><a href="signal-desk.html">03 Signal</a><a href="field-glass.html">04 Glass</a><a href="briefing-wall.html">05 Wall</a></div>
+    <a class="concept-nav__back" href="index.html">Overzicht</a>
+  </nav>
+  <main id="workspace" class="prototype control-room">
+    <header class="control-topbar">
+      <div class="control-brand"><span></span><div><strong>Talk2Dashboard NL</strong><small>Landelijk operationeel beeld</small></div></div>
+      <div class="control-status mono"><span class="status-dot"></span> Live · 7 bronnen <time>10:27</time></div>
+      <div class="control-actions"><button class="control-plain">Regio: Nederland</button><button class="icon-button" aria-label="Instellingen">⚙</button></div>
+    </header>
+
+    <section class="control-layout" aria-label="Operationeel dashboard">
+      <aside class="control-feed">
+        <div class="control-section-head"><div><span class="mono">40 actief</span><h1>Live meldingen</h1></div><button aria-label="Meldingen filteren">Filter</button></div>
+        <ol class="incident-list">
+          <li class="incident incident--urgent"><time class="mono">10:24</time><div><strong>Ambulance-inzet in Breda</strong><span>P2000 · hoge prioriteit</span></div><b>1</b></li>
+          <li class="incident"><time class="mono">10:21</time><div><strong>Stilstaand voertuig op A12</strong><span>NDW · richting Utrecht</span></div><b>2</b></li>
+          <li class="incident"><time class="mono">10:18</time><div><strong>Brug geopend voor scheepvaart</strong><span>Rijkswaterstaat · Gouda</span></div><b>3</b></li>
+          <li class="incident"><time class="mono">10:12</time><div><strong>Werkzaamheden op het spoor</strong><span>NS · Almere–Lelystad</span></div><b>4</b></li>
+        </ol>
+        <div class="control-watch">
+          <span class="mono">Aandachtspunt</span>
+          <strong>IJmuiden</strong>
+          <p>Windstoten en verkeer worden samen gevolgd.</p>
+          <div><span>47,4 km/u</span><small>voorbeeldwaarde</small></div>
+        </div>
+      </aside>
+
+      <section class="control-map" aria-label="Incidentkaart">
+        <div class="control-map__head"><div><span class="mono">Ruimtelijk beeld</span><h2>Nederland · live</h2></div><div class="control-map__legend"><span><i></i>P2000</span><span><i></i>Verkeer</span><span><i></i>Spoor</span></div></div>
+        <div class="control-map__canvas">
+          <img class="map-image" src="assets/dashboard-reference.png" alt="Talk2Dashboard-kaart met actuele incidentmarkeringen in Nederland">
+          <button class="control-marker control-marker--one" data-marker aria-label="Incident Utrecht"><span>2</span></button>
+          <button class="control-marker control-marker--two" data-marker aria-label="Incident Rotterdam"><span>1</span></button>
+          <button class="control-marker control-marker--three" data-marker aria-label="Incident Arnhem"><span>3</span></button>
+          <article class="control-map__detail"><span class="mono">Geselecteerd · 10:21</span><strong>Stilstaand voertuig op A12</strong><p>Hoofdrijbaan richting Utrecht. Eén rijstrook beperkt beschikbaar.</p><a href="#">Bekijk herkomst</a></article>
+        </div>
+      </section>
+
+      <aside class="control-insight">
+        <section><span class="mono">Beslisbeeld</span><strong class="control-big-number">40</strong><p>actieve signalen in de huidige werkruimte</p></section>
+        <section class="control-trend"><div><span class="mono">Laatste 60 min</span><strong>Verkeer +12%</strong></div><svg viewBox="0 0 240 80" role="img" aria-label="Voorbeeldtrend van verkeerssignalen"><path d="M4 64 C38 60 46 43 76 48 S120 55 142 31 S198 16 236 22" fill="none" stroke="currentColor" stroke-width="3"/><path d="M4 64 C38 60 46 43 76 48 S120 55 142 31 S198 16 236 22 L236 80 L4 80Z" fill="currentColor" opacity=".08"/></svg></section>
+        <section class="control-confidence"><span class="mono">Datadekking</span><div><strong>6</strong><small>actueel</small></div><div><strong>1</strong><small>verouderd</small></div></section>
+      </aside>
+    </section>
+
+    <aside id="control-transcript" class="control-voice" aria-label="Spraakassistent">
+      <button class="voice-orb" data-toggle-transcript="#control-transcript" aria-expanded="false" aria-label="Gesprek openen"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+      <div class="control-voice__copy"><span class="mono">AI-agent · gereed</span><strong>“Focus de kaart op Utrecht en toon alleen verkeer.”</strong></div>
+    </aside>
+  </main>
+  <script src="prototype.js"></script>
+</body>
+</html>

@@ -13,6 +13,9 @@ def run() -> None:
         level=getattr(logging, settings.app_log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    # httpx includes full request URLs, which may contain short-lived signed credentials.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     uvicorn.run(
         "talk2dashboard.api.app:app",
         host=settings.app_host,

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import jsonpatch
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from talk2dashboard.domain import (
@@ -14,12 +16,17 @@ from talk2dashboard.domain import (
     LogicalDataBinding,
     PanelSpec,
 )
+from talk2dashboard.errors import VersionConflictError
 from talk2dashboard.query import QueryEngine, canonical_hash
 from talk2dashboard.storage.database import Database
 from talk2dashboard.storage.models import DashboardConfigRow, RenderStateRow
 
 
 class DashboardService:
+    # Provider-backed result sets cannot be reproduced by QueryEngine. They remain
+    # immutable snapshots until an explicit tool call creates and binds a new handle.
+    _SNAPSHOT_HANDLE_KINDS = frozenset({"places", "web_results"})
+
     def __init__(self, database: Database, query: QueryEngine) -> None:
         self.database = database
         self.query = query
@@ -42,7 +49,7 @@ class DashboardService:
             ),
             PanelSpec(
                 panel_id="incident-map",
-                panel_type="map_2d",
+                panel_type="map_3d_google",
                 title="Incidentbeeld",
                 span="wide",
                 order=1,
@@ -56,7 +63,7 @@ class DashboardService:
             PanelSpec(
                 panel_id="incident-timeline",
                 panel_type="incident_timeline",
-                title="Actuele signalen",
+                title="Live meldingen",
                 span="standard",
                 order=2,
                 binding=self._binding(
@@ -68,19 +75,22 @@ class DashboardService:
             ),
             PanelSpec(
                 panel_id="wind-trend",
-                panel_type="timeseries",
-                title="Windstoten · laatste uur",
+                panel_type="ranking",
+                title="Windstoten · actuele meetstations",
                 span="wide",
                 order=3,
                 binding=self._binding(
-                    "wind-trend", wind_query, wind_handle, {"x": "observed_at", "y": "value"}
+                    "wind-trend",
+                    wind_query,
+                    wind_handle,
+                    {"label": "location.label", "y": "value"},
                 ),
                 props={"unit": "km/h"},
             ),
             PanelSpec(
                 panel_id="evidence",
                 panel_type="evidence",
-                title="Bronnen en zekerheid",
+                title="Bronmix",
                 span="standard",
                 order=4,
                 binding=self._binding("evidence", event_query, event_handle, {"label": "title"}),
@@ -177,6 +187,7 @@ class DashboardService:
         created_by: str,
         reason: str,
         conversation_id: str | None = None,
+        source_bundle_version: str | None = None,
         session: Session | None = None,
     ) -> DashboardSpec:
         if session is None:
@@ -187,12 +198,13 @@ class DashboardService:
                     created_by=created_by,
                     reason=reason,
                     conversation_id=conversation_id,
+                    source_bundle_version=source_bundle_version,
                     session=managed_session,
                 )
         current = self.current(session=session)
         assert current is not None
         if current.version != expected_version:
-            raise ValueError(f"VERSION_CONFLICT:{current.version}")
+            raise VersionConflictError(expected_version, current.version)
         if any(operation.op == "undo" for operation in operations):
             if len(operations) != 1:
                 raise ValueError("undo cannot be combined with other operations")
@@ -230,6 +242,9 @@ class DashboardService:
                 "created_by": created_by,
                 "conversation_id": conversation_id,
                 "reason": reason,
+                "created_from_source_bundle_version": (
+                    source_bundle_version or current.created_from_source_bundle_version
+                ),
             }
         )
         next_spec = DashboardSpec.model_validate(data)
@@ -311,43 +326,71 @@ class DashboardService:
         self, spec: DashboardSpec, bundle_version: str | None = None
     ) -> dict[str, dict]:
         handles: dict[str, dict] = {}
+        pending: dict[tuple[str, str], list[str]] = {}
+        bindings: dict[tuple[str, str], LogicalDataBinding] = {}
         for panel in spec.panels:
-            if not panel.binding or panel.binding.refresh_policy == "paused":
-                continue
-            try:
-                handle = self.query.execute(panel.binding.query_spec, bundle_version)
-                compatible = handle.schema_fingerprint == panel.binding.schema_fingerprint
-                if handle.row_count and compatible:
-                    handles[panel.panel_id] = handle.model_dump(mode="json")
+            for layer_index, binding in enumerate(panel.bindings):
+                if binding.refresh_policy == "paused":
                     continue
-                previous = self.query.latest_compatible(
-                    panel.binding.query_hash,
-                    panel.binding.schema_fingerprint,
-                    exclude_bundle=bundle_version,
+                target = (
+                    panel.panel_id if layer_index == 0 else f"{panel.panel_id}::layer:{layer_index}"
                 )
-                if previous:
-                    handles[panel.panel_id] = {
-                        **previous.model_dump(mode="json"),
-                        "warning": "Nieuw bronresultaat is leeg of schema-incompatibel; vorige handle getoond.",
-                    }
-                else:
-                    handles[panel.panel_id] = {
-                        "error": "Geen compatibele datahandle beschikbaar.",
-                        "handle_id": handle.handle_id,
-                    }
-            except (KeyError, ValueError, RuntimeError) as exc:
-                previous = self.query.latest_compatible(
-                    panel.binding.query_hash, panel.binding.schema_fingerprint
-                )
-                handles[panel.panel_id] = (
-                    {
-                        **previous.model_dump(mode="json"),
-                        "warning": f"Verversen mislukt ({type(exc).__name__}); vorige handle getoond.",
-                    }
-                    if previous
-                    else {"error": f"Databinding mislukt: {type(exc).__name__}"}
-                )
+                if binding.kind in self._SNAPSHOT_HANDLE_KINDS:
+                    snapshot = self.query.latest_compatible(
+                        binding.query_hash, binding.schema_fingerprint
+                    )
+                    handles[target] = (
+                        snapshot.model_dump(mode="json")
+                        if snapshot
+                        else {"error": "De externe snapshot is niet meer beschikbaar."}
+                    )
+                    continue
+                key = (binding.query_hash, binding.schema_fingerprint)
+                pending.setdefault(key, []).append(target)
+                bindings[key] = binding
+
+        if pending:
+            with ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+                futures = {
+                    key: pool.submit(self._materialize_binding, binding, bundle_version)
+                    for key, binding in bindings.items()
+                }
+                for key, panel_ids in pending.items():
+                    materialized = futures[key].result()
+                    for panel_id in panel_ids:
+                        handles[panel_id] = materialized
         return handles
+
+    def _materialize_binding(self, binding: LogicalDataBinding, bundle_version: str | None) -> dict:
+        try:
+            handle = self.query.execute(binding.query_spec, bundle_version)
+            compatible = handle.schema_fingerprint == binding.schema_fingerprint
+            if handle.row_count and compatible:
+                return handle.model_dump(mode="json")
+            previous = self.query.latest_compatible(
+                binding.query_hash,
+                binding.schema_fingerprint,
+                exclude_bundle=bundle_version,
+            )
+            if previous:
+                return {
+                    **previous.model_dump(mode="json"),
+                    "warning": "Nieuw bronresultaat is leeg of schema-incompatibel; vorige handle getoond.",
+                }
+            return {
+                "error": "Geen compatibele datahandle beschikbaar.",
+                "handle_id": handle.handle_id,
+            }
+        except (KeyError, ValueError, RuntimeError, OperationalError) as exc:
+            previous = self.query.latest_compatible(binding.query_hash, binding.schema_fingerprint)
+            return (
+                {
+                    **previous.model_dump(mode="json"),
+                    "warning": f"Verversen mislukt ({type(exc).__name__}); vorige handle getoond.",
+                }
+                if previous
+                else {"error": f"Databinding mislukt: {type(exc).__name__}"}
+            )
 
     def acknowledge_render(
         self,
@@ -423,9 +466,7 @@ class DashboardService:
                 previous_spec = json.loads(previous_row.spec_json)
         current_spec = spec.model_dump(mode="json")
         patch = jsonpatch.make_patch(previous_spec, current_spec).patch
-        binding_ids = [
-            panel.binding.binding_id for panel in spec.panels if panel.binding is not None
-        ]
+        binding_ids = [binding.binding_id for panel in spec.panels for binding in panel.bindings]
         session.add(
             DashboardConfigRow(
                 config_version_id=f"cfg_{uuid4().hex}",

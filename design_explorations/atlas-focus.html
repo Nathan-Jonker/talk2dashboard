@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Atlas Focus, een kaartgestuurd Talk2Dashboard-designconcept.">
+  <title>Atlas Focus · Talk2Dashboard</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="shared.css">
+  <link rel="stylesheet" href="atlas-focus.css">
+</head>
+<body>
+  <a class="skip-link" href="#atlas">Naar de kaart</a>
+  <nav class="concept-nav" aria-label="Designrichtingen"><a class="concept-nav__brand" href="index.html">Talk2Dashboard · studies</a><div class="concept-nav__links"><a href="control-room.html">01 Control</a><a aria-current="page" href="atlas-focus.html">02 Atlas</a><a href="signal-desk.html">03 Signal</a><a href="field-glass.html">04 Glass</a><a href="briefing-wall.html">05 Wall</a></div><a class="concept-nav__back" href="index.html">Overzicht</a></nav>
+  <main id="atlas" class="prototype atlas-focus">
+    <img class="atlas-map" src="assets/dashboard-reference.png" alt="Driedimensionale operationele kaart met incidentlocaties in Nederland">
+    <div class="atlas-shade"></div>
+    <header class="atlas-brand"><span></span><div><strong>Talk2Dashboard NL</strong><small>Ruimtelijk werkbeeld</small></div></header>
+    <aside class="atlas-rail" aria-label="Live bronnen">
+      <div class="atlas-rail__top"><span class="status-dot"></span><strong>Live</strong><small class="mono">10:27</small></div>
+      <nav aria-label="Kaartlagen"><button aria-current="true"><b>40</b><span>Signalen</span></button><button><b>7</b><span>Bronnen</span></button><button><b>3</b><span>Prioriteit</span></button></nav>
+      <div class="atlas-rail__source"><span class="mono">Zichtbare laag</span><strong>Verkeer + P2000</strong><p>Laatste zestig minuten</p></div>
+    </aside>
+    <section class="atlas-lens" aria-label="Kaartfocus IJmuiden"><span class="mono">Focusgebied</span><h1>IJmuiden</h1><p>Wind, verkeer en meldingen binnen vijf kilometer.</p><div><strong>47,4</strong><span>km/u windstoot<br><small>voorbeeldwaarde</small></span></div></section>
+    <button class="atlas-pin atlas-pin--one" data-marker aria-label="Selecteer melding Utrecht"></button>
+    <button class="atlas-pin atlas-pin--two" data-marker aria-label="Selecteer melding Rotterdam"></button>
+    <button class="atlas-pin atlas-pin--three" data-marker aria-label="Selecteer melding Arnhem"></button>
+    <article class="atlas-briefing">
+      <div class="atlas-briefing__index"><span class="mono">02 / 40</span><i></i></div>
+      <div><span class="mono">10:21 · NDW</span><h2>Stilstaand voertuig op de A12</h2><p>Richting Utrecht. Eén rijstrook beperkt beschikbaar; geen gekoppelde hulpdienstmelding.</p></div>
+      <div class="atlas-briefing__actions"><a href="#">Herkomst</a><button aria-label="Volgende melding">→</button></div>
+    </article>
+    <aside id="atlas-transcript" class="atlas-voice">
+      <button class="voice-orb" data-toggle-transcript="#atlas-transcript" aria-expanded="false" aria-label="Gesprek openen"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" fill="none" stroke="currentColor" stroke-width="2"/></svg></button><div><span class="mono">Luisteren</span><p>“Toon ziekenhuizen bij deze melding.”</p></div>
+    </aside>
+  </main>
+  <script src="prototype.js"></script>
+</body>
+</html>

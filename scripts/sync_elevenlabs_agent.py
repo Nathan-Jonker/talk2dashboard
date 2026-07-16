@@ -15,8 +15,10 @@ from talk2dashboard.config import get_settings  # noqa: E402
 from talk2dashboard.integrations.elevenlabs_config import (  # noqa: E402
     client_tool,
     desired_agent_config,
+    managed_value_differences,
+    managed_values_match,
 )
-from talk2dashboard.tools.definitions import TOOL_DEFINITIONS  # noqa: E402
+from talk2dashboard.tools.definitions import LEGACY_TOOL_NAMES, TOOL_DEFINITIONS  # noqa: E402
 
 API_ROOT = "https://api.elevenlabs.io"
 
@@ -28,8 +30,13 @@ def safe_error(response: httpx.Response) -> str:
         return f"HTTP {response.status_code}"
     detail = body.get("detail", body) if isinstance(body, dict) else body
     if isinstance(detail, dict):
-        return str(detail.get("status") or detail.get("message") or "request failed")[:300]
-    return str(detail)[:300]
+        summary = {
+            key: detail[key]
+            for key in ("status", "message", "errors")
+            if detail.get(key) is not None
+        }
+        return json.dumps(summary or detail, ensure_ascii=True)[:1200]
+    return str(detail)[:1200]
 
 
 def request(client: httpx.Client, method: str, path: str, **kwargs: Any) -> httpx.Response:
@@ -37,6 +44,14 @@ def request(client: httpx.Client, method: str, path: str, **kwargs: Any) -> http
     if response.status_code >= 400:
         raise RuntimeError(f"{method} {path}: {safe_error(response)}")
     return response
+
+
+def supports_parallel_tool_calls(client: httpx.Client, model: str) -> bool:
+    payload = request(client, "GET", "/v1/convai/llm/list").json()
+    for item in payload.get("llms", []):
+        if item.get("llm") == model:
+            return bool(item.get("supports_parallel_tool_calls"))
+    return False
 
 
 def main() -> int:
@@ -71,7 +86,7 @@ def main() -> int:
                     current = request(
                         client, "POST", "/v1/convai/tools", json={"tool_config": wanted}
                     ).json()
-            elif current.get("tool_config") != wanted:
+            elif not managed_values_match(wanted, current.get("tool_config")):
                 changes.append(f"tool bijwerken: {definition['name']}")
                 if args.apply:
                     current = request(
@@ -82,35 +97,33 @@ def main() -> int:
                     ).json()
             if current:
                 tool_ids.append(current["id"])
-        end_call = existing.get("end_call")
-        if end_call is None:
-            changes.append("system tool toevoegen: end_call")
-            if args.apply:
-                end_call = request(
-                    client,
-                    "POST",
-                    "/v1/convai/tools",
-                    json={
-                        "tool_config": {
-                            "type": "system",
-                            "name": "end_call",
-                            "params": {"system_tool_type": "end_call"},
-                            "description": "Beeindig het gesprek wanneer de gebruiker expliciet klaar is.",
-                        }
-                    },
-                ).json()
-        if end_call:
-            tool_ids.append(end_call["id"])
-
         config = agent.get("conversation_config", {})
         current_prompt = config.get("agent", {}).get("prompt", {})
-        desired = desired_agent_config(settings, tool_ids, current_prompt)
-        comparable = json.dumps(desired["conversation_config"], sort_keys=True)
+        parallel_supported = supports_parallel_tool_calls(client, settings.elevenlabs_llm_api_model)
+        desired = desired_agent_config(
+            settings,
+            tool_ids,
+            current_prompt,
+            supports_parallel_tool_calls=parallel_supported,
+        )
+        if not parallel_supported:
+            print(
+                f"LLM {settings.elevenlabs_llm_api_model} ondersteunt geen parallelle "
+                "platform-toolcalls; data_batch paralleliseert onafhankelijke reads intern."
+            )
         current_subset = {
             section: config.get(section, {}) for section in desired["conversation_config"]
         }
-        if json.dumps(current_subset, sort_keys=True) != comparable:
+        if not managed_values_match(desired["conversation_config"], current_subset):
             changes.append("agent conversation_config bijwerken")
+            if args.check:
+                for path, wanted, current in managed_value_differences(
+                    desired["conversation_config"], current_subset
+                )[:8]:
+                    print(
+                        f"  drift {path}: verwacht={str(wanted)[:120]!r}, "
+                        f"actueel={str(current)[:120]!r}"
+                    )
             if args.apply:
                 request(
                     client,
@@ -118,6 +131,13 @@ def main() -> int:
                     f"/v1/convai/agents/{settings.elevenlabs_agent_id}",
                     json=desired,
                 )
+        for name in sorted(LEGACY_TOOL_NAMES):
+            legacy = existing.get(name)
+            if legacy is None:
+                continue
+            changes.append(f"legacy tool verwijderen: {name}")
+            if args.apply:
+                request(client, "DELETE", f"/v1/convai/tools/{legacy['id']}")
     if changes:
         print("\n".join(changes))
         return 1 if args.check else 0
