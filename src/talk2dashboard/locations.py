@@ -4,7 +4,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from talk2dashboard.domain import EphemeralLocationResolution
 from talk2dashboard.storage.database import Database
@@ -17,12 +17,49 @@ class EphemeralLocationStore:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    @staticmethod
+    def _input_hash(source_text: str) -> str:
+        return hashlib.sha256(source_text.strip().lower().encode()).hexdigest()
+
+    @staticmethod
+    def _from_row(row: EphemeralLocationResolutionRow) -> EphemeralLocationResolution:
+        return EphemeralLocationResolution(
+            resolution_id=row.resolution_id,
+            input_hash=row.input_hash,
+            google_place_id=row.google_place_id,
+            display_label=row.display_label,
+            latitude=row.latitude,
+            longitude=row.longitude,
+            requested_at=datetime.fromisoformat(row.created_at),
+            expires_at=datetime.fromisoformat(row.expires_at),
+            attribution=row.attribution,
+            terms_profile=row.policy_version,
+        )
+
+    def find_active(self, source_text: str) -> EphemeralLocationResolution | None:
+        now = datetime.now(UTC)
+        input_hash = self._input_hash(source_text)
+        with self.database.session() as session:
+            row = session.scalars(
+                select(EphemeralLocationResolutionRow)
+                .where(
+                    EphemeralLocationResolutionRow.input_hash == input_hash,
+                    EphemeralLocationResolutionRow.expires_at > now.isoformat(),
+                )
+                .order_by(EphemeralLocationResolutionRow.created_at.desc())
+                .limit(1)
+            ).first()
+            return self._from_row(row) if row is not None else None
+
     def put(self, source_text: str, match: dict) -> EphemeralLocationResolution:
+        existing = self.find_active(source_text)
+        if existing is not None:
+            return existing
         now = datetime.now(UTC)
         location = match.get("location") or {}
         resolution = EphemeralLocationResolution(
             resolution_id=f"locres_{uuid4().hex}",
-            input_hash=hashlib.sha256(source_text.strip().lower().encode()).hexdigest(),
+            input_hash=self._input_hash(source_text),
             google_place_id=match.get("place_id"),
             display_label=str(match.get("display_label") or source_text),
             latitude=float(location["lat"]),
@@ -54,18 +91,7 @@ class EphemeralLocationStore:
             row = session.get(EphemeralLocationResolutionRow, resolution_id)
             if row is None or datetime.fromisoformat(row.expires_at) <= now:
                 raise KeyError("Unknown or expired location resolution")
-            return EphemeralLocationResolution(
-                resolution_id=row.resolution_id,
-                input_hash=row.input_hash,
-                google_place_id=row.google_place_id,
-                display_label=row.display_label,
-                latitude=row.latitude,
-                longitude=row.longitude,
-                requested_at=datetime.fromisoformat(row.created_at),
-                expires_at=datetime.fromisoformat(row.expires_at),
-                attribution=row.attribution,
-                terms_profile=row.policy_version,
-            )
+            return self._from_row(row)
 
     def cleanup(self, now: datetime | None = None) -> int:
         reference = now or datetime.now(UTC)

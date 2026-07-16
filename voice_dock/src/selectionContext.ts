@@ -6,6 +6,10 @@ export type OperatorSelection = {
   description?: string;
   latitude?: number;
   longitude?: number;
+  locationLabel?: string;
+  locationSource?: "source" | "geocoded";
+  resolutionId?: string;
+  locationPending?: boolean;
   layer?: string;
 };
 
@@ -43,6 +47,14 @@ export function normalizeOperatorSelection(value: unknown): OperatorSelection | 
     description: String(item.description || "").trim() || undefined,
     latitude: optionalNumber(item.latitude),
     longitude: optionalNumber(item.longitude),
+    locationLabel: String(item.location_label || item.locationLabel || "").trim() || undefined,
+    locationSource: item.location_source === "geocoded" || item.locationSource === "geocoded"
+      ? "geocoded"
+      : item.location_source === "source" || item.locationSource === "source"
+        ? "source"
+        : undefined,
+    resolutionId: String(item.resolution_id || item.resolutionId || "").trim() || undefined,
+    locationPending: item.location_pending === true || item.locationPending === true,
     layer: String(item.layer || "").trim() || undefined
   };
 }
@@ -67,7 +79,9 @@ export function operatorContextMessage(selection: OperatorSelection): string {
     ? `; coordinaten=${selection.latitude!.toFixed(5)},${selection.longitude!.toFixed(5)}`
     : "";
   const spatialInstruction = hasCoordinates
-    ? "Gebruik bij een ruimtelijke vervolgvraag direct data_batch met een exacte origin-query en query_nearby; inspect_workspace is niet nodig."
+    ? selection.locationSource === "geocoded"
+      ? `De positie is tijdelijk gegeocodeerd als ${JSON.stringify(selection.locationLabel || selection.title)}. Houd het geselecteerde bronrecord zelf als focusmarker zichtbaar. Gebruik bij een ruimtelijke vervolgvraag direct data_batch query_nearby met origin_resolution_id=${selection.resolutionId}; gebruik nearby_places met dezelfde resolution_id uitsluitend voor voorzieningen. Inspect_workspace is niet nodig.`
+      : "Gebruik bij een ruimtelijke vervolgvraag direct data_batch met een exacte origin-query en query_nearby; inspect_workspace is niet nodig."
     : selection.streamId === "p2000"
       ? `Dit P2000-bronrecord bevat geen ruwe coordinaten. Gebruik voor vaste databronnen rond deze melding direct data_batch query_nearby met origin_text=${JSON.stringify(`${selection.title} ${selection.description || ""}`.trim())} en de gevraagde radius; gebruik nearby_places met dezelfde origin_text alleen voor voorzieningen. Val nooit terug op een ongefilterde landelijke query. Elk radiusresultaat moet distance_m bevatten. Label de positie als gegeocodeerd.`
       : "Dit bronrecord bevat geen kaartcoordinaten; vraag alleen om verduidelijking wanneer titel en omschrijving geen bruikbare plaats bevatten.";

@@ -445,14 +445,16 @@ class ToolExecutor:
                 origin_text = str(query_spec.pop("origin_text", "") or "").strip()
                 resolution_id = str(query_spec.get("origin_resolution_id") or "").strip()
                 if origin_text:
-                    geocoded = await self.geocoding.resolve(origin_text)
-                    matches = geocoded.get("matches") or []
-                    if not matches:
-                        raise ToolExecutionError(
-                            "LOCATION_NOT_RESOLVED",
-                            "Google vond geen locatie; verduidelijk het adres of de plaats.",
-                        )
-                    resolution = self.locations.put(origin_text, matches[0])
+                    resolution = self.locations.find_active(origin_text)
+                    if resolution is None:
+                        geocoded = await self.geocoding.resolve(origin_text)
+                        matches = geocoded.get("matches") or []
+                        if not matches:
+                            raise ToolExecutionError(
+                                "LOCATION_NOT_RESOLVED",
+                                "Google vond geen locatie; verduidelijk het adres of de plaats.",
+                            )
+                        resolution = self.locations.put(origin_text, matches[0])
                     resolution_id = resolution.resolution_id
                     query_spec["origin_resolution_id"] = resolution_id
                 else:
@@ -608,9 +610,7 @@ class ToolExecutor:
                 "freshness": handle.freshness,
                 "history": {
                     "mode": (
-                        "local_rolling_history"
-                        if query_spec.get("window")
-                        else "current_snapshot"
+                        "local_rolling_history" if query_spec.get("window") else "current_snapshot"
                     ),
                     "requested_window": query_spec.get("window"),
                     "maximum_window": "P2D",
@@ -631,9 +631,7 @@ class ToolExecutor:
                     in result_item["panel_compatibility"]["recommended_panels"],
                     "requested_window": query_spec.get("window"),
                     "history_mode": (
-                        "local_rolling_history"
-                        if query_spec.get("window")
-                        else "current_snapshot"
+                        "local_rolling_history" if query_spec.get("window") else "current_snapshot"
                     ),
                     "recommended_panel": (
                         "timeseries"

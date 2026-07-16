@@ -96,6 +96,7 @@ export function VoiceDock() {
   const fallbackInFlight = useRef(false);
   const websocketFallbackRef = useRef<() => Promise<void>>(async () => undefined);
   const lastSentSelection = useRef("");
+  const contextResolutionRequest = useRef(0);
 
   const clientTools = useMemo(() => ({
     inspect_workspace: async (parameters: Record<string, unknown>) => invokeTool("inspect_workspace", parameters),
@@ -247,17 +248,73 @@ export function VoiceDock() {
     const selectContext = (event: Event) => {
       const selection = normalizeOperatorSelection((event as CustomEvent<unknown>).detail);
       if (!selection) return;
-      setOperatorSelection(selection);
-      window.sessionStorage.setItem(OPERATOR_SELECTION_KEY, JSON.stringify(selection));
+      const needsResolution = selection.streamId === "p2000"
+        && (selection.latitude === undefined || selection.longitude === undefined);
+      const pendingSelection = needsResolution
+        ? { ...selection, locationPending: true }
+        : selection;
+      const requestNumber = ++contextResolutionRequest.current;
+      setOperatorSelection(pendingSelection);
+      window.sessionStorage.setItem(OPERATOR_SELECTION_KEY, JSON.stringify(pendingSelection));
       setGuideOpen(false);
+      if (!needsResolution) return;
+      void jsonRequest<{
+        source_ref: string;
+        latitude: number;
+        longitude: number;
+        label: string;
+        location_source: "source" | "geocoded";
+        resolution_id?: string | null;
+      }>("/api/context/location", {
+        method: "POST",
+        body: JSON.stringify({ source_ref: selection.sourceRef })
+      }).then((resolved) => {
+        if (contextResolutionRequest.current !== requestNumber) return;
+        const enriched = normalizeOperatorSelection({
+          ...selection,
+          latitude: resolved.latitude,
+          longitude: resolved.longitude,
+          location_label: resolved.label,
+          location_source: resolved.location_source,
+          resolution_id: resolved.resolution_id || undefined,
+          location_pending: false
+        });
+        if (!enriched) return;
+        setOperatorSelection(enriched);
+        window.sessionStorage.setItem(OPERATOR_SELECTION_KEY, JSON.stringify(enriched));
+        window.dispatchEvent(new CustomEvent("talk2d:context-changed", {
+          detail: {
+            source_ref: enriched.sourceRef,
+            stream_id: enriched.streamId,
+            record_id: enriched.recordId,
+            title: enriched.title,
+            description: enriched.description || "",
+            latitude: enriched.latitude,
+            longitude: enriched.longitude
+          }
+        }));
+        postMetric("operator_context_location_resolved", {
+          source_ref: enriched.sourceRef,
+          location_source: enriched.locationSource || "unknown"
+        });
+      }).catch((cause) => {
+        if (contextResolutionRequest.current !== requestNumber) return;
+        const fallback = { ...selection, locationPending: false };
+        setOperatorSelection(fallback);
+        window.sessionStorage.setItem(OPERATOR_SELECTION_KEY, JSON.stringify(fallback));
+        postMetric("operator_context_location_failed", {
+          source_ref: selection.sourceRef,
+          message: cause instanceof Error ? cause.message : String(cause)
+        });
+      });
     };
     window.addEventListener("talk2d:select-context", selectContext);
     return () => window.removeEventListener("talk2d:select-context", selectContext);
   }, []);
 
   useEffect(() => {
-    if (conversation.status !== "connected" || !operatorSelection) return;
-    const contextKey = `${conversation.getId?.() || "conversation"}:${operatorSelection.sourceRef}`;
+    if (conversation.status !== "connected" || !operatorSelection || operatorSelection.locationPending) return;
+    const contextKey = `${conversation.getId?.() || "conversation"}:${operatorSelection.sourceRef}:${operatorSelection.resolutionId || "source"}`;
     if (lastSentSelection.current === contextKey) return;
     conversation.sendContextualUpdate(operatorContextMessage(operatorSelection));
     lastSentSelection.current = contextKey;
@@ -285,6 +342,7 @@ export function VoiceDock() {
   }, [conversation]);
 
   const clearOperatorSelection = () => {
+    contextResolutionRequest.current += 1;
     if (conversation.status === "connected" && operatorSelection) {
       conversation.sendContextualUpdate(
         `Stille dashboardcontext; antwoord hier nu niet op. De operatorselectie ${operatorSelection.sourceRef} is gewist. Verwijs niet langer met dit, hier of deze melding naar dat record.`
@@ -590,10 +648,12 @@ export function VoiceDock() {
           <strong title={operatorSelection.title}>{operatorSelection.title}</strong>
           {operatorSelection.description && <em title={operatorSelection.description}>{operatorSelection.description}</em>}
           <span className="voice-context-chip__location">
-            {operatorSelection.latitude !== undefined && operatorSelection.longitude !== undefined
-              ? `Kaartfocus · ${operatorSelection.latitude.toFixed(4)}, ${operatorSelection.longitude.toFixed(4)}`
+            {operatorSelection.locationPending
+              ? "Kaartlocatie bepalen…"
+              : operatorSelection.latitude !== undefined && operatorSelection.longitude !== undefined
+              ? `Kaartfocus · ${operatorSelection.locationLabel || `${operatorSelection.latitude.toFixed(4)}, ${operatorSelection.longitude.toFixed(4)}`}${operatorSelection.locationSource === "geocoded" ? " · gegeocodeerd" : ""}`
               : operatorSelection.streamId === "p2000"
-                ? "Kaartfocus wordt uit het meldingsadres bepaald"
+                ? "Kaartlocatie kon niet uit de melding worden bepaald"
                 : "Geen kaartlocatie in dit bronrecord"}
           </span>
         </span>

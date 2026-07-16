@@ -398,6 +398,11 @@ async def test_data_batch_filters_fixed_sources_around_geocoded_origin_text(serv
     assert all(row["distance_m"] <= 10_000 for row in result["preview"])
     assert all(row["distance_origin_record_id"].startswith("locres_") for row in result["preview"])
 
+    persisted_payload = executor.query.load_payload(result["handle_id"])
+    refreshed = executor.query.execute(persisted_payload["query_spec"], bundle)
+    assert refreshed.row_count == result["row_count"]
+    assert refreshed.preview[0]["distance_m"] <= 10_000
+
 
 async def test_dashboard_batch_uses_top_level_handle_when_model_emits_empty_binding(
     services,

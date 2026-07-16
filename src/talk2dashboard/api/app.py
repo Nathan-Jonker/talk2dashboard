@@ -23,6 +23,10 @@ from talk2dashboard.agent_catalog import STREAM_CAPABILITIES, STREAM_IDS, TOOL_C
 from talk2dashboard.capture import CaptureService
 from talk2dashboard.claims import audit_numeric_claims
 from talk2dashboard.config import Settings, get_settings
+from talk2dashboard.context_locations import (
+    ContextLocationNotResolvedError,
+    ContextLocationService,
+)
 from talk2dashboard.dashboard import DashboardService
 from talk2dashboard.domain import ToolRequest
 from talk2dashboard.evidence import EvidenceNotFoundError, EvidenceService
@@ -57,6 +61,10 @@ class PolicyUpdate(BaseModel):
 
 class DashboardInitializationRequest(BaseModel):
     force: bool = False
+
+
+class ContextLocationRequest(BaseModel):
+    source_ref: str = Field(min_length=3, max_length=300)
 
 
 class RenderAck(BaseModel):
@@ -120,6 +128,11 @@ class Container:
             GeocodingClient(settings, self.database),
             BraveSearchClient(settings, self.database),
             self.capture.capture,
+        )
+        self.context_locations = ContextLocationService(
+            self.evidence,
+            self.tools.geocoding,
+            self.tools.locations,
         )
         self.planner = InitialDashboardPlanner(
             self.cerebras, self.sources, self.dashboard, self.tools
@@ -482,6 +495,21 @@ def evidence(source_ref: str, response: Response) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, max-age=60"
     response.headers["ETag"] = f'"{result["snapshot"]["content_hash"]}"'
     return result
+
+
+@app.post("/api/context/location")
+async def resolve_context_location(payload: ContextLocationRequest) -> dict[str, Any]:
+    if ":" not in payload.source_ref:
+        raise HTTPException(400, detail={"code": "INVALID_SOURCE_REF"})
+    try:
+        return await container.context_locations.resolve(payload.source_ref)
+    except EvidenceNotFoundError as exc:
+        raise HTTPException(404, detail={"code": "EVIDENCE_NOT_FOUND"}) from exc
+    except ContextLocationNotResolvedError as exc:
+        raise HTTPException(
+            422,
+            detail={"code": "LOCATION_NOT_RESOLVED", "message": str(exc)},
+        ) from exc
 
 
 @app.get("/api/dashboard/state")

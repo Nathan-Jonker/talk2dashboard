@@ -375,6 +375,7 @@
   window.addEventListener("talk2d:refresh", () => window.setTimeout(scan, 30));
   window.addEventListener("talk2d:context-changed", (event) => {
     updateMarkerFocus(event.detail?.source_ref || "");
+    updateFocusBeacons(event.detail || null);
   });
   window.addEventListener("talk2d:select-context", (event) => {
     updateMarkerFocus(event.detail?.source_ref || "");

@@ -28,7 +28,7 @@ def test_map_evidence_action_dispatches_drawer_event_directly() -> None:
 def test_map_points_can_be_selected_as_conversation_context() -> None:
     source = ASSET.read_text()
 
-    assert 'focus.dataset.contextSourceRef = String(point.sourceRef)' in source
+    assert "focus.dataset.contextSourceRef = String(point.sourceRef)" in source
     assert '"Focus actief" : "Als focus gebruiken"' in source
     assert 'new CustomEvent("talk2d:select-context"' in source
     assert "source_ref: String(point.sourceRef)" in source
@@ -40,6 +40,9 @@ def test_selected_map_record_keeps_a_visible_marker_and_record_identity() -> Non
     renderer = RENDERER.read_text()
 
     assert 'window.addEventListener("talk2d:context-changed"' in source
+    context_changed = source.split('window.addEventListener("talk2d:context-changed"', 1)[1]
+    context_changed = context_changed.split("});", 1)[0]
+    assert "updateFocusBeacons" in context_changed
     assert '"talk2d-map-marker--focused"' in source
     assert 'record.className = "talk2d-map-popover__record"' in source
     assert 'className="talk2d-feed-record"' in renderer

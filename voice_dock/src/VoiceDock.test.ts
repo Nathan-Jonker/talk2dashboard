@@ -81,6 +81,22 @@ describe("voice dock contract", () => {
     expect(context).toContain("gegeocodeerd");
   });
 
+  it("uses a resolved P2000 focus directly for nearby data and facilities", () => {
+    const selection = normalizeOperatorSelection({
+      source_ref: "p2000:evt-44",
+      title: "Buitenbrand Kuifeend Bedum",
+      latitude: 53.30,
+      longitude: 6.60,
+      location_label: "Kuifeend, Bedum",
+      location_source: "geocoded",
+      resolution_id: "locres_bedum"
+    });
+    const context = operatorContextMessage(selection!);
+    expect(context).toContain("origin_resolution_id=locres_bedum");
+    expect(context).toContain("Houd het geselecteerde bronrecord zelf als focusmarker zichtbaar");
+    expect(context).toContain("nearby_places");
+  });
+
   it("rejects malformed persisted operator selections", () => {
     expect(parseStoredOperatorSelection('{"sourceRef":"ndw_incidents:road-1","title":"A12"}'))
       .toMatchObject({ streamId: "ndw_incidents", recordId: "road-1" });

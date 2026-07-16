@@ -13,6 +13,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from talk2dashboard.deterministic import haversine_m, pearson
 from talk2dashboard.domain import DataHandle, HandleKind
 from talk2dashboard.errors import InsufficientBaselineError, InsufficientSeriesError
+from talk2dashboard.locations import EphemeralLocationStore
 from talk2dashboard.storage.database import Database
 from talk2dashboard.storage.models import (
     DataHandleRow,
@@ -48,6 +49,7 @@ def parse_window(value: str | None) -> timedelta | None:
 class QueryEngine:
     def __init__(self, database: Database) -> None:
         self.database = database
+        self.locations = EphemeralLocationStore(database)
 
     def latest_bundle(self) -> str:
         with self.database.session() as session:
@@ -70,15 +72,10 @@ class QueryEngine:
             return [json.loads(record.payload_json) for record in records]
 
     def _rows_for_history(self, query: dict[str, Any]) -> list[dict[str, Any]]:
-        streams = set(
-            query.get("streams") or ([query["stream"]] if query.get("stream") else [])
-        )
-        metrics = set(
-            query.get("metrics") or ([query["metric"]] if query.get("metric") else [])
-        )
+        streams = set(query.get("streams") or ([query["stream"]] if query.get("stream") else []))
+        metrics = set(query.get("metrics") or ([query["metric"]] if query.get("metric") else []))
         categories = set(
-            query.get("categories")
-            or ([query["category"]] if query.get("category") else [])
+            query.get("categories") or ([query["category"]] if query.get("category") else [])
         )
         record_kind = query.get("record_kind")
         window = parse_window(query.get("window"))
@@ -154,9 +151,9 @@ class QueryEngine:
             bundle_version = bundle_version or input_handle.source_bundle_version
         else:
             bundle_version = bundle_version or self.latest_bundle()
-            use_history = bool(normalized.get("window")) or normalized.get(
-                "operation"
-            ) == "baseline"
+            use_history = (
+                bool(normalized.get("window")) or normalized.get("operation") == "baseline"
+            )
             source_rows = (
                 self._rows_for_history(normalized)
                 if use_history
@@ -165,9 +162,15 @@ class QueryEngine:
         external_spatial_filters = None
         if normalized.get("operation") == "query_nearby" and normalized.get("origin_resolution_id"):
             if origin_location is None:
-                raise ValueError(
-                    "query_nearby with origin_resolution_id requires an active location resolution"
-                )
+                try:
+                    resolution = self.locations.get(str(normalized["origin_resolution_id"]))
+                except KeyError as exc:
+                    raise ValueError("query_nearby requires an active location resolution") from exc
+                origin_location = {
+                    "latitude": resolution.latitude,
+                    "longitude": resolution.longitude,
+                    "label": resolution.display_label,
+                }
             external_spatial_filters = [
                 (
                     int(normalized.get("radius_m", MAX_CROSS_SOURCE_RADIUS_M)),
@@ -388,9 +391,7 @@ class QueryEngine:
         normalized["limit"] = max(1, min(int(normalized["limit"]), 2000))
         window = parse_window(normalized.get("window"))
         if window and normalized.get("operation") != "baseline" and window > MAX_QUERY_HISTORY:
-            raise ValueError(
-                f"window may not exceed {MAX_QUERY_HISTORY_ISO}; use at most two days"
-            )
+            raise ValueError(f"window may not exceed {MAX_QUERY_HISTORY_ISO}; use at most two days")
         if normalized.get("since") or normalized.get("until"):
             raise ValueError("Use a relative window up to P2D instead of since/until")
         return normalized
