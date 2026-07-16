@@ -13,7 +13,7 @@ from typing import Any, cast
 import httpx
 import websockets
 from a2wsgi import WSGIMiddleware
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -25,6 +25,7 @@ from talk2dashboard.claims import audit_numeric_claims
 from talk2dashboard.config import Settings, get_settings
 from talk2dashboard.dashboard import DashboardService
 from talk2dashboard.domain import ToolRequest
+from talk2dashboard.evidence import EvidenceNotFoundError, EvidenceService
 from talk2dashboard.integrations.cerebras import CerebrasService
 from talk2dashboard.integrations.places import GeocodingClient, PlacesClient
 from talk2dashboard.integrations.search import BraveSearchClient
@@ -40,10 +41,7 @@ from talk2dashboard.storage.models import (
     ConversationEventRow,
     ConversationRow,
     LatencyEventRow,
-    NormalizedRecordRow,
     ProviderCallRow,
-    SourceBundleRow,
-    SourceSnapshotRow,
     ToolAuditRow,
 )
 from talk2dashboard.tools.definitions import TOOL_DEFINITIONS
@@ -109,6 +107,7 @@ class Container:
         self.maintenance = MaintenanceService(settings, self.database, self.assets)
         self.sources = SourceService(settings, self.database)
         self.query = QueryEngine(self.database)
+        self.evidence = EvidenceService(self.database)
         self.dashboard = DashboardService(self.database, self.query)
         self.cerebras = CerebrasService(settings, self.database)
         self.capture = CaptureService(settings, self.dashboard, self.assets, self.cerebras)
@@ -473,54 +472,16 @@ def stream_health(stream_id: str) -> dict[str, Any]:
 
 
 @app.get("/api/evidence/{source_ref:path}")
-def evidence(source_ref: str) -> dict[str, Any]:
+def evidence(source_ref: str, response: Response) -> dict[str, Any]:
     if ":" not in source_ref:
         raise HTTPException(400, detail={"code": "INVALID_SOURCE_REF"})
-    stream_id, record_id = source_ref.split(":", 1)
-    with container.database.session() as session:
-        record = session.scalars(
-            select(NormalizedRecordRow)
-            .where(
-                NormalizedRecordRow.stream_id == stream_id,
-                NormalizedRecordRow.record_id == record_id,
-            )
-            .order_by(NormalizedRecordRow.observed_at.desc())
-        ).first()
-        if record is None:
-            raise HTTPException(404, detail={"code": "EVIDENCE_NOT_FOUND"})
-        snapshot = session.get(SourceSnapshotRow, record.snapshot_id)
-        assert snapshot is not None
-        bundles = session.scalars(select(SourceBundleRow)).all()
-        bundle_ids = [
-            row.bundle_version
-            for row in bundles
-            if record.snapshot_id in json.loads(row.snapshot_ids_json)
-        ]
-        normalized = json.loads(record.payload_json)
-        metadata = json.loads(snapshot.metadata_json)
-        ref = normalized.get("source_ref") or {}
-        return {
-            "source_ref": source_ref,
-            "record": normalized,
-            "snapshot": {
-                "snapshot_id": snapshot.snapshot_id,
-                "content_hash": snapshot.content_hash,
-                "source_url": snapshot.source_url,
-                "provider": snapshot.provider,
-                "observed_at": snapshot.observed_at,
-                "ingested_at": snapshot.ingested_at,
-                "metadata": metadata,
-            },
-            "owner": ref.get("owner"),
-            "trust_tier": ref.get("trust_tier"),
-            "quality_flags": normalized.get("quality_flags", []),
-            "bundle_versions": bundle_ids,
-            "fallback": {
-                "used": bool(metadata.get("fallback_from")),
-                "from": metadata.get("fallback_from"),
-                "reason": metadata.get("fallback_reason"),
-            },
-        }
+    try:
+        result = container.evidence.get(source_ref)
+    except EvidenceNotFoundError as exc:
+        raise HTTPException(404, detail={"code": "EVIDENCE_NOT_FOUND"}) from exc
+    response.headers["Cache-Control"] = "private, max-age=60"
+    response.headers["ETag"] = f'"{result["snapshot"]["content_hash"]}"'
+    return result
 
 
 @app.get("/api/dashboard/state")

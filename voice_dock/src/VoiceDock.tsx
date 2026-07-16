@@ -20,6 +20,7 @@ import { useConversation } from "@elevenlabs/react";
 import { abortAllToolRequests, invokeTool, jsonRequest, postConversationEvent, postMetric } from "./api";
 import { VoiceRing } from "./VoiceRing";
 import { InfoDrawer } from "./InfoDrawer";
+import { prefetchEvidence } from "./evidenceCache";
 import { clampDockPosition, parseStoredDockPosition } from "./dockPosition";
 import type { DockPosition } from "./dockPosition";
 import {
@@ -211,6 +212,15 @@ export function VoiceDock() {
       window.removeEventListener("talk2d:tool-start", onTool);
       window.removeEventListener("talk2d:tool-result", onResult);
     };
+  }, []);
+
+  useEffect(() => {
+    const prefetch = (event: Event) => {
+      const sourceRef = (event as CustomEvent<{ source_ref?: string }>).detail?.source_ref;
+      if (sourceRef) prefetchEvidence(sourceRef);
+    };
+    window.addEventListener("talk2d:prefetch-evidence", prefetch);
+    return () => window.removeEventListener("talk2d:prefetch-evidence", prefetch);
   }, []);
 
   useEffect(() => {

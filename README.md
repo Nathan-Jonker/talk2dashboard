@@ -233,6 +233,11 @@ Logical panel bindings store a canonical query, not a concrete value. On a new s
 
 Data panels can combine up to six independently refreshed source bindings when the sources belong in one coherent view. Maps, feeds, rankings, time series, comparisons, KPI groups, Places, evidence and summaries preserve a distinct source color, provenance and refresh status per binding. Correlation remains a single deterministic server result. Geo-handles render by default as an interactive Google 3D map; marker clicks expose a compact source-backed popover and link to the evidence drawer. A 2D Google map remains available on request and as the deterministic fallback when the 3D runtime is unavailable.
 
+Record provenance lookups use a composite record index, targeted bundle lookup
+and a bounded sixty-second server cache. The browser prefetches evidence on
+pointer hover and reuses in-flight and recent requests, so opening individual
+records does not block on repeated provenance scans.
+
 The Cerebras startup planner is requested after the first real browser paint. A fresh system dashboard is composed immediately. After that, an automatic refresh-triggered redesign is allowed only when the latest persisted dashboard configuration is at least fifteen minutes old. This cooldown survives server restarts, and any saved agent, user, restore, or planner change resets it; live source refreshes do not. The settings drawer contains an explicit manual redesign action that bypasses the cooldown. The planner selects a focus from current source health, executes fixed read-only query recipes through `data_batch`, and atomically replaces the visible workspace through `dashboard_batch`. A later user request uses `replace_visible` for a new focus, `merge` only for an explicit addition, and otherwise `adaptive`, which keeps the workspace at no more than twelve visible panels.
 
 ## Quality checks

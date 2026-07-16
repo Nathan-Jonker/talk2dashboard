@@ -1185,6 +1185,12 @@ Iedere response bevat:
 - `POST /api/dashboard/user-settings`: alleen user-owned policies zoals websearch toggle en auto-update
 - `GET /api/handles/{handle_id}/preview`
 - `GET /api/evidence/{source_ref}`
+
+Evidence lookup gebruikt een samengestelde index op stream, record en
+waarnemingstijd. Resultaten worden maximaal zestig seconden in een begrensde
+servercache en browsercache gehouden; pointer-prefetch mag deze cache vullen.
+Cache-inhoud is uitsluitend read-only provenance en verloopt uiterlijk bij de
+normale bronverversingscadans.
 - `GET /api/assets/{asset_handle}`: tijdelijke signed/local asset access
 
 ### Source interfaces

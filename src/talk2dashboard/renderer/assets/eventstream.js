@@ -269,6 +269,14 @@
       }));
     }
   });
+  document.addEventListener("pointerover", function (event) {
+    const target = event.target.closest && event.target.closest("[data-source-ref]");
+    if (target && target.dataset.sourceRef) {
+      window.dispatchEvent(new CustomEvent("talk2d:prefetch-evidence", {
+        detail: { source_ref: target.dataset.sourceRef }
+      }));
+    }
+  }, { passive: true });
   acknowledgeEvent(
     null,
     null,

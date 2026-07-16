@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -29,6 +29,14 @@ class SourceSnapshotRow(Base):
 
 class NormalizedRecordRow(Base):
     __tablename__ = "normalized_record_versions"
+    __table_args__ = (
+        Index(
+            "ix_normalized_stream_record_observed",
+            "stream_id",
+            "record_id",
+            "observed_at",
+        ),
+    )
     record_version_id: Mapped[str] = mapped_column(String, primary_key=True)
     record_id: Mapped[str] = mapped_column(String, index=True)
     snapshot_id: Mapped[str] = mapped_column(ForeignKey("source_snapshots.snapshot_id"), index=True)

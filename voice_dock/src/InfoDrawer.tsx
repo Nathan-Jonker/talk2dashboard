@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, Clock3, Database, Download, FileSearch, Search, Sparkles, Wrench, X } from "lucide-react";
 
 import { jsonRequest } from "./api";
+import { cachedEvidence, loadEvidence, type Evidence } from "./evidenceCache";
 
 declare global {
   interface Window {
@@ -84,17 +85,6 @@ type DashboardInitialization = {
   cooldown_minutes: number;
 };
 
-type Evidence = {
-  source_ref: string;
-  owner?: string;
-  trust_tier?: string;
-  quality_flags: string[];
-  record: Record<string, unknown>;
-  snapshot: Record<string, unknown>;
-  bundle_versions: string[];
-  fallback: { used: boolean; from?: string; reason?: string };
-};
-
 export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evidenceRef?: string | null; onClose: () => void }) {
   const drawerRef = useRef<HTMLElement | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
@@ -153,10 +143,11 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
       return;
     }
     let active = true;
-    setEvidence(null);
+    const cached = cachedEvidence(evidenceRef);
+    setEvidence(cached);
     setEvidenceError(null);
-    setEvidenceLoading(true);
-    void jsonRequest<Evidence>(`/api/evidence/${encodeURIComponent(evidenceRef)}`)
+    setEvidenceLoading(!cached);
+    void loadEvidence(evidenceRef)
       .then((result) => { if (active) setEvidence(result); })
       .catch((cause) => {
         if (active) setEvidenceError(cause instanceof Error ? cause.message : "Bronrecord kon niet worden geladen.");
