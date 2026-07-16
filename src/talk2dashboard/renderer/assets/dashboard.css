@@ -195,7 +195,7 @@ a:focus-visible {
 
 .talk2d-grid {
   display: grid;
-  grid-template-columns: minmax(15rem, 0.82fr) minmax(28rem, 2.2fr) minmax(14rem, 0.74fr);
+  grid-template-columns: minmax(20rem, 0.9fr) minmax(32rem, 2.1fr) minmax(20rem, 0.9fr);
   grid-template-areas: "left primary right";
   gap: 1px;
   overflow: hidden;
@@ -236,7 +236,7 @@ a:focus-visible {
 }
 
 .talk2d-grid[data-layout-count="2"] {
-  grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+  grid-template-columns: minmax(32rem, 2fr) minmax(20rem, 1fr);
   grid-template-areas: "primary right";
 }
 
@@ -504,13 +504,13 @@ a:focus-visible {
 
 .talk2d-list li {
   display: grid;
-  grid-template-columns: 4.75rem minmax(0, 1fr) 2rem auto;
+  grid-template-columns: 3.65rem minmax(9rem, 1fr) 1.75rem 1.75rem;
   align-items: center;
   inline-size: auto !important;
   min-width: 0;
   max-inline-size: 100% !important;
-  gap: var(--space-xs) var(--space-sm);
-  padding: var(--space-xs) 0 var(--space-xs) var(--space-sm);
+  gap: 0.2rem 0.5rem;
+  padding: 0.55rem 0.55rem 0.55rem var(--space-sm);
   border-block-end: var(--rule-thin) solid var(--color-rule-2);
   border-inline-start: 3px solid var(--color-accent);
   box-sizing: border-box !important;
@@ -612,8 +612,15 @@ a:focus-visible {
 
 .talk2d-feed-meta {
   display: grid;
-  gap: var(--space-3xs);
+  align-self: start;
+  gap: 0.08rem;
   min-width: 0;
+  padding-block-start: 0.08rem;
+}
+
+.talk2d-feed-meta time {
+  color: var(--color-ink-2);
+  font-weight: 650;
 }
 
 .talk2d-feed-meta span {
@@ -627,10 +634,10 @@ a:focus-visible {
 .talk2d-feed-title {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--color-ink-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  line-height: 1.3;
+  color: var(--color-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.18;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -638,15 +645,15 @@ a:focus-visible {
 .talk2d-feed-copy {
   display: grid;
   min-width: 0;
-  gap: var(--space-3xs);
+  gap: 0.16rem;
 }
 
 .talk2d-feed-description {
   overflow: hidden;
   margin: 0;
   color: var(--color-muted);
-  font-size: var(--text-xs);
-  line-height: 1.3;
+  font-size: 0.72rem;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -664,10 +671,10 @@ a:focus-visible {
 .talk2d-feed-item[data-focus="true"] .talk2d-feed-record { display: block; }
 
 .talk2d-evidence-ref {
-  inline-size: 2rem !important;
-  min-inline-size: 2rem !important;
-  max-inline-size: 2rem !important;
-  min-height: 2rem;
+  inline-size: 1.75rem !important;
+  min-inline-size: 1.75rem !important;
+  max-inline-size: 1.75rem !important;
+  min-height: 1.75rem;
   padding: 0;
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: 50%;
@@ -684,24 +691,32 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  min-width: 4.6rem;
-  min-height: 2.15rem;
-  padding-inline: 0.65rem;
+  inline-size: 1.75rem;
+  min-inline-size: 1.75rem;
+  max-inline-size: 1.75rem;
+  min-height: 1.75rem;
+  padding: 0;
   border: var(--rule-thin) solid color-mix(in oklch, var(--color-accent) 55%, var(--color-rule));
-  border-radius: var(--radius-sm);
+  border-radius: 50%;
   background: color-mix(in oklch, var(--color-accent) 7%, var(--color-paper));
   box-shadow: inset 0 1px 0 color-mix(in oklch, #fff 78%, transparent);
   color: var(--color-accent);
   cursor: pointer;
-  font-size: var(--text-xs);
-  font-weight: 650;
-  line-height: 1;
+  font-size: 0;
   transition: background-color 150ms ease, border-color 150ms ease,
     color 150ms ease, transform 150ms ease;
 }
 
-.talk2d-context-ref::before,
+.talk2d-context-ref::before {
+  width: 0.78rem;
+  height: 0.78rem;
+  flex: 0 0 0.78rem;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: radial-gradient(circle, currentColor 0 0.13rem, transparent 0.15rem);
+  content: "";
+}
+
 .talk2d-map-popover__focus::before {
   width: 0.78rem;
   height: 0.78rem;
@@ -732,7 +747,7 @@ a:focus-visible {
   border-color: var(--color-navy);
   background: var(--color-navy);
   color: var(--color-yellow);
-  box-shadow: inset 3px 0 0 var(--color-yellow);
+  box-shadow: inset 0 0 0 2px var(--color-yellow);
 }
 
 .talk2d-context-ref[data-focus-active="true"]::before {

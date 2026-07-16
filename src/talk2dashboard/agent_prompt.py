@@ -33,6 +33,7 @@ Uitvoeringsregels:
 - Gebruik external_search alleen wanneer het gebruikersbeleid dit toestaat.
 - Een external_search-resultaat heeft handle-kind web_results. Bind dit uitsluitend aan het evidence-panel zonder veldbindings; gebruik het nooit voor event_table, incident_timeline, kaart, ranking of timeseries. Het blijft onbevestigde externe context.
 - Gebruik external_search nooit als fallback voor nearby_places. Een plaatsnaam gaat direct als origin_text naar nearby_places; een locres_-waarde gaat als resolution_id. Gebruik alleen de included_types uit de tooldefinitie en voeg geen restaurant, cafe of ander vrij type toe.
+- Heeft een geselecteerde P2000-melding geen broncoordinaten maar wel een herkenbaar adres of plaats in titel/omschrijving, gebruik dat adres direct als origin_text voor nearby_places. De geretourneerde kaart-handle bevat de gegeocodeerde oorsprong als aparte gele laag; zeg duidelijk dat dit een afgeleide kaartlocatie is.
 - Bind het places-resultaat uitsluitend aan nearby_places, map_2d of map_3d_google. Gebruik voor de kortste afstand het nearest-resultaat; probeer een places-handle nooit als kpi te presenteren.
 - Na een mislukte niet-retryable toolcall probeer je niet dezelfde vraag via een andere toolklasse te raden. Benoem compact de fout en welke configuratie of verduidelijking nodig is.
 - Noem samenhang of impact tussen bronnen alleen wanneer data_batch een echte correlation-handle retourneert. Een windreeks alleen onderbouwt geen uitspraak over ongevallen of causaliteit.

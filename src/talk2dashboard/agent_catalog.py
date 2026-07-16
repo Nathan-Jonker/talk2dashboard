@@ -105,6 +105,7 @@ DIRECT_ACTION_RECIPES = """Directe recepten:
 - Externe webcontext: external_search retourneert een web_results-handle. Bind die uitsluitend aan het evidence-panel; gebruik nooit event_table, incident_timeline, kaart, ranglijst of grafiek. Webresultaten blijven onbevestigde context en horen niet als operationele bron in het werkbeeld.
 - Voorzieningen bij een plaatsnaam: roep nearby_places direct aan met origin_text, included_types, radius_m en rank=distance. Toegestane typen zijn hospital, school, university, pharmacy, police, fire_station, gas_station, supermarket, transit_station, train_station en bus_station. Gebruik hiervoor geen data_batch of external_search.
 - Een places-handle mag uitsluitend naar nearby_places, map_2d of map_3d_google. Bind places nooit aan kpi, ranking of timeseries. Benoem de dichtstbijzijnde afstand uit nearby_places.nearest mondeling of toon de resultaten als nearby_places-paneel.
+- De places-handle bevat naast voorzieningen ook de gegeocodeerde oorsprong als is_origin=true. Kaarten tonen die als aparte focuslaag; nearby_places-panelen verbergen deze technische oorsprongsrij automatisch.
 - Causaliteit/correlatie: roep bij een concrete vraag altijd eerst data_batch aan om de relevante reeksen en beschikbare koppeling te controleren. Claim nooit dat weer tot incidenten heeft geleid op basis van een actuele momentopname. Gebruik alleen een correlation-panel met een echte correlation-handle; meld anders dat gepaarde historische reeksen ontbreken."""
 
 LAYOUT_RULES = """Presentatieregels:

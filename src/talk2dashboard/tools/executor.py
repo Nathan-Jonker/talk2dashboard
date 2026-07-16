@@ -938,7 +938,7 @@ class ToolExecutor:
                     "Google Places is niet geconfigureerd voor voorzieningen in de buurt.",
                 ) from exc
             raise
-        rows = [
+        place_rows = [
             {
                 "record_id": item.get("id"),
                 "title": (item.get("displayName") or {}).get("text") or item.get("id"),
@@ -963,7 +963,22 @@ class ToolExecutor:
             and (item.get("location") or {}).get("longitude") is not None
         ]
         if payload.get("rank", "distance") == "distance":
-            rows.sort(key=lambda item: item["distance_m"])
+            place_rows.sort(key=lambda item: item["distance_m"])
+        origin_row = {
+            "record_id": str(origin_reference),
+            "title": origin_label or "Geselecteerde locatie",
+            "description": "Gegeocodeerde oorsprong van de ruimtelijke zoekopdracht.",
+            "category": "search_origin",
+            "primary_type": "origin",
+            "location": {
+                "latitude": origin_latitude,
+                "longitude": origin_longitude,
+            },
+            "attribution": "Google Maps",
+            "distance_m": 0,
+            "is_origin": True,
+        }
+        map_rows = [origin_row, *place_rows]
         places_handle = self.query.create_handle(
             "places",
             {
@@ -971,14 +986,14 @@ class ToolExecutor:
                 "origin": origin_reference,
                 **data["request"],
             },
-            rows,
+            map_rows,
             bundle_version,
         )
         return {
             "origin": {"reference": origin_reference, "label": origin_label},
             "places_handle": places_handle.model_dump(mode="json"),
-            "preview": rows[:5],
-            "nearest": rows[0] if rows else None,
+            "preview": place_rows[:5],
+            "nearest": place_rows[0] if place_rows else None,
             "attribution": data["attribution"],
             "budget": data["budget"],
             "warnings": (

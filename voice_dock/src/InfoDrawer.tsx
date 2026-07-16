@@ -293,38 +293,6 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
         </section>}
         {!evidenceRef && <>
         <section className="info-section">
-          <h3><Wrench size={17} /> Agenttools</h3>
-          <p>Klap een tool open voor alle invoer, uitvoer, grenzen en voorbeeldopdrachten. Leestools wijzigen geen data; presentatietools wijzigen alleen de dashboardconfiguratie.</p>
-          <div className="capability-list">
-            {tools.map((tool) => (
-              <details className="capability-item" key={tool.name}>
-                <summary>
-                  <span><strong>{tool.display_name}</strong><small>{tool.description}</small></span>
-                  <b>{tool.category}</b>
-                </summary>
-                <div className="capability-body">
-                  <code>{tool.name}</code>
-                  <h4>Invoer</h4>
-                  <dl className="contract-list">
-                    {tool.inputs.map((input) => (
-                      <div key={input.name}>
-                        <dt><code>{input.name}</code><span>{input.type}{input.required ? " · verplicht" : " · optioneel"}</span></dt>
-                        <dd>{input.description}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <h4>Uitvoer</h4>
-                  <ul>{tool.outputs.map((output) => <li key={output}>{output}</li>)}</ul>
-                  <h4>Voorbeeldvragen</h4>
-                  <ul className="example-list">{tool.examples.map((example) => <li key={example}>“{example}”</li>)}</ul>
-                  <h4>Grenzen</h4>
-                  <ul>{tool.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
-                </div>
-              </details>
-            ))}
-          </div>
-        </section>
-        <section className="info-section">
           <h3><Activity size={17} /> Automatisch verversen</h3>
           <div className="policy-row">
             <p>Bronupdates worden alleen hervat wanneer deze instelling aan staat.</p>
@@ -344,23 +312,6 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
           <div className="policy-row">
             <p>Uitgangspunt is alleen de vaste databronnen. Webresultaten worden als onbevestigde context gelabeld.</p>
             <label className="switch"><input aria-label="Externe websearch inschakelen" type="checkbox" checked={policy?.web_search_enabled || false} onChange={() => void toggleSearch()} disabled={busy} /><span /></label>
-          </div>
-        </section>
-        <section className="info-section">
-          <h3><Activity size={17} /> Evaluatie en latency</h3>
-          <div className="export-row">
-            <a href="/api/export/metrics.csv"><Download size={15} /> Metrics CSV</a>
-            <a href="/api/export/tools.csv"><Download size={15} /> Tools CSV</a>
-            <a href="/api/export/state.json"><Download size={15} /> State JSON</a>
-          </div>
-          <div className="latency-list">
-            {turns.length === 0 ? <p>Nog geen gemeten turns.</p> : turns.slice(-8).reverse().map((turn, index) => (
-              <div key={turn.turn_id || index}>
-                <span>{turn.turn_id ? turn.turn_id.slice(0, 8) : "sessie"}</span>
-                <strong>{turn.latencies_ms.first_playable_audio != null ? `${Math.round(turn.latencies_ms.first_playable_audio)} ms audio` : "audio niet gemeten"}</strong>
-                <b>{turn.latencies_ms.render_complete != null ? `${Math.round(turn.latencies_ms.render_complete)} ms render` : "geen render"}</b>
-              </div>
-            ))}
           </div>
         </section>
         <section className="info-section">
@@ -411,6 +362,59 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
           </div>
         </section>
         <section className="info-section">
+          <h3><Wrench size={17} /> Agenttools</h3>
+          <p>Klap een tool open voor alle invoer, uitvoer, grenzen en voorbeeldopdrachten. Leestools wijzigen geen data; presentatietools wijzigen alleen de dashboardconfiguratie.</p>
+          <div className="capability-list">
+            {tools.map((tool) => (
+              <details className="capability-item" key={tool.name}>
+                <summary>
+                  <span><strong>{tool.display_name}</strong><small>{tool.description}</small></span>
+                  <b>{tool.category}</b>
+                </summary>
+                <div className="capability-body">
+                  <code>{tool.name}</code>
+                  <h4>Invoer</h4>
+                  <dl className="contract-list">
+                    {tool.inputs.map((input) => (
+                      <div key={input.name}>
+                        <dt><code>{input.name}</code><span>{input.type}{input.required ? " · verplicht" : " · optioneel"}</span></dt>
+                        <dd>{input.description}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <h4>Uitvoer</h4>
+                  <ul>{tool.outputs.map((output) => <li key={output}>{output}</li>)}</ul>
+                  <h4>Voorbeeldvragen</h4>
+                  <ul className="example-list">{tool.examples.map((example) => <li key={example}>“{example}”</li>)}</ul>
+                  <h4>Grenzen</h4>
+                  <ul>{tool.constraints.map((constraint) => <li key={constraint}>{constraint}</li>)}</ul>
+                </div>
+              </details>
+            ))}
+          </div>
+        </section>
+        <section className="info-section info-section--plain">
+          <h3>Wat de agent mag aanpassen</h3>
+          <p>Paneltype, filters, kaartmodus, focus, volgorde, titel en tijdvenster. De agent bindt alleen aan gevalideerde handles en kan nooit bronwaarden schrijven.</p>
+        </section>
+        <section className="info-section">
+          <h3><Activity size={17} /> Evaluatie en latency</h3>
+          <div className="export-row">
+            <a href="/api/export/metrics.csv"><Download size={15} /> Metrics CSV</a>
+            <a href="/api/export/tools.csv"><Download size={15} /> Tools CSV</a>
+            <a href="/api/export/state.json"><Download size={15} /> State JSON</a>
+          </div>
+          <div className="latency-list">
+            {turns.length === 0 ? <p>Nog geen gemeten turns.</p> : turns.slice(-8).reverse().map((turn, index) => (
+              <div key={turn.turn_id || index}>
+                <span>{turn.turn_id ? turn.turn_id.slice(0, 8) : "sessie"}</span>
+                <strong>{turn.latencies_ms.first_playable_audio != null ? `${Math.round(turn.latencies_ms.first_playable_audio)} ms audio` : "audio niet gemeten"}</strong>
+                <b>{turn.latencies_ms.render_complete != null ? `${Math.round(turn.latencies_ms.render_complete)} ms render` : "geen render"}</b>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="info-section">
           <h3><Clock3 size={17} /> Dashboardgeschiedenis</h3>
           <p>Elke layoutwijziging wordt append-only opgeslagen. Live dataverversing maakt geen nieuwe configuratieversie.</p>
           <div className="version-list">
@@ -420,10 +424,6 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
               </button>
             ))}
           </div>
-        </section>
-        <section className="info-section info-section--plain">
-          <h3>Wat de agent mag aanpassen</h3>
-          <p>Paneltype, filters, kaartmodus, focus, volgorde, titel en tijdvenster. De agent bindt alleen aan gevalideerde handles en kan nooit bronwaarden schrijven.</p>
         </section>
         </>}
       </aside>

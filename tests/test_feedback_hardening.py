@@ -243,6 +243,11 @@ async def test_nearby_places_resolves_named_origin_and_returns_distance(services
     assert response.result["nearest"]["record_id"] == "near"
     assert response.result["nearest"]["distance_m"] >= 0
     assert response.result["preview"][0]["record_id"] == "near"
+    handle_id = response.result["places_handle"]["handle_id"]
+    _handle, map_rows = executor.query.load(handle_id)
+    assert map_rows[0]["is_origin"] is True
+    assert map_rows[0]["distance_m"] == 0
+    assert map_rows[0]["title"] == "Utrecht, Nederland"
 
 
 async def test_nearby_places_uses_supported_subset_and_reports_ignored_types(services) -> None:

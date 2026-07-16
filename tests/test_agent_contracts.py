@@ -204,6 +204,9 @@ def test_operator_focus_survives_dashboard_rerenders() -> None:
     assert "new MutationObserver(scheduleContextFocus)" in eventstream
     assert 'new CustomEvent("talk2d:context-changed"' in eventstream
     assert 'target.setAttribute("aria-pressed"' in eventstream
+    assert 'target.setAttribute("aria-label", label)' in eventstream
+    assert 'target.setAttribute("title", label)' in eventstream
+    assert "target.textContent" not in eventstream
 
 
 def test_elevenlabs_model_display_name_is_mapped_to_api_id(services) -> None:

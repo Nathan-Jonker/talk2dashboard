@@ -67,6 +67,19 @@ describe("voice dock contract", () => {
     expect(operatorSelectionMeta(selection!)).toBe("P2000 · Record evt-42");
   });
 
+  it("routes P2000 records without source coordinates through geocoding", () => {
+    const selection = normalizeOperatorSelection({
+      source_ref: "p2000:evt-43",
+      title: "Wateroverlast Lupinestraat Dedemsvaart",
+      description: "Wateroverlast in Dedemsvaart"
+    });
+    const context = operatorContextMessage(selection!);
+    expect(context).toContain("nearby_places");
+    expect(context).toContain("origin_text");
+    expect(context).toContain("gegeocodeerd");
+    expect(context).not.toContain("query_nearby");
+  });
+
   it("rejects malformed persisted operator selections", () => {
     expect(parseStoredOperatorSelection('{"sourceRef":"ndw_incidents:road-1","title":"A12"}'))
       .toMatchObject({ streamId: "ndw_incidents", recordId: "road-1" });

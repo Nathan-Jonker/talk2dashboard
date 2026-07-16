@@ -559,7 +559,6 @@ export function VoiceDock() {
           title="Wat kan ik vragen?"
         >
           <CircleHelp size={18} />
-          <span>Mogelijkheden</span>
         </button>
         <button
           className="voice-icon-btn voice-expand-btn"
@@ -583,7 +582,9 @@ export function VoiceDock() {
           <span className="voice-context-chip__location">
             {operatorSelection.latitude !== undefined && operatorSelection.longitude !== undefined
               ? `Kaartfocus · ${operatorSelection.latitude.toFixed(4)}, ${operatorSelection.longitude.toFixed(4)}`
-              : "Geen kaartlocatie in dit bronrecord"}
+              : operatorSelection.streamId === "p2000"
+                ? "Kaartfocus wordt uit het meldingsadres bepaald"
+                : "Geen kaartlocatie in dit bronrecord"}
           </span>
         </span>
         <button type="button" onClick={clearOperatorSelection} aria-label="Gespreksfocus wissen" title="Focus wissen"><X size={16} /></button>
@@ -626,7 +627,6 @@ export function VoiceDock() {
           <label className="sr-only" htmlFor="voice-chat-input">Typ een opdracht</label>
           <input id="voice-chat-input" value={text} onChange={(event) => { setText(event.target.value); signalUserActivity(); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} placeholder="Typ een opdracht…" />
           <button className="voice-icon-btn" onClick={() => void submit()} disabled={!text.trim()} aria-label="Bericht versturen"><Send size={18} /></button>
-          <button className="voice-icon-btn" onClick={() => window.dispatchEvent(new CustomEvent("talk2d:open-info"))} aria-label="Beschikbare data en mogelijkheden"><Info size={18} /></button>
         </div>
       </div>}
     </section>

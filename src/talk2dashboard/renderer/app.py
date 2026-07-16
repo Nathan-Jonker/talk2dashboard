@@ -340,6 +340,7 @@ _MAP_SOURCE_COLORS = {
     "luchtmeetnet": "#2f855a",
     "nos_rss": "#c98300",
     "google_places": "#5f6f7c",
+    "location_focus": "#f7d417",
 }
 _MAP_FALLBACK_COLORS = ("#0878be", "#00a6a6", "#e75b43", "#f7d417", "#2f855a")
 _STREAM_SOURCE_LABELS = {
@@ -351,20 +352,21 @@ _STREAM_SOURCE_LABELS = {
     "luchtmeetnet": "Luchtmeetnet",
     "nos_rss": "NOS",
     "google_places": "Google Places",
+    "location_focus": "Geselecteerde locatie",
 }
 
 
 def _map_source_key(row: dict[str, Any], handle_kind: str) -> str:
     source = _source_from_row(row)
     if handle_kind == "places":
-        return "google_places"
+        return "location_focus" if row.get("is_origin") else "google_places"
     return str(source.get("stream_id") or row.get("stream_id") or handle_kind or "bron")
 
 
 def _map_source_label(row: dict[str, Any], handle_kind: str) -> str:
     source = _source_from_row(row)
     if handle_kind == "places":
-        return "Google Places"
+        return "Geselecteerde locatie" if row.get("is_origin") else "Google Places"
     owner = str(source.get("owner") or "")
     return _source_short_name(owner) if owner else _map_source_key(row, handle_kind)
 
@@ -676,6 +678,14 @@ def _build_multi_binding_panel(
 
     rows = [dict(row, _talk2d_source=layer.source_label) for layer in layers for row in layer.rows]
     if panel.panel_type == "nearby_places":
+        rows = [row for row in rows if not row.get("is_origin")]
+        if not rows:
+            return frame(
+                html.Div(
+                    "Geen voorzieningen gevonden binnen de gekozen straal.",
+                    className="talk2d-empty",
+                )
+            )
         rows.sort(key=lambda row: float(row.get("distance_m") or math.inf))
         columns = [
             {"field": key, "headerName": key.replace("_", " ").title()}
@@ -834,9 +844,9 @@ def _feed_list(rows: list[dict[str, Any]]) -> Any:
                     if source_ref
                     else None,
                     _data_button(
-                        "Focus",
+                        "",
                         className="talk2d-context-ref",
-                        title="Gebruik deze melding als context voor het gesprek",
+                        title="Als gespreksfocus gebruiken",
                         **{
                             "aria-label": "Als gespreksfocus gebruiken",
                             "data-context-source-ref": source_ref,
@@ -1309,6 +1319,17 @@ def _build_panel(panel, context: RendererContext, materialized: dict[str, dict])
             handle_data.get("warning"),
         )
     if panel.panel_type == "nearby_places":
+        rows = [row for row in rows if not row.get("is_origin")]
+        if not rows:
+            return _panel_frame(
+                panel,
+                html.Div(
+                    "Geen voorzieningen gevonden binnen de gekozen straal.",
+                    className="talk2d-empty",
+                ),
+                handle,
+                handle_data.get("warning"),
+            )
         columns = [
             {"field": key, "headerName": key.replace("_", " ").title()}
             for key in list(rows[0])[:6]

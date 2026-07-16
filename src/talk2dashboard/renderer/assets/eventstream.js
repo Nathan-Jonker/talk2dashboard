@@ -27,8 +27,9 @@
       target.dataset.focusActive = active ? "true" : "false";
       target.setAttribute("aria-pressed", active ? "true" : "false");
       if (target.classList.contains("talk2d-context-ref")) {
-        const label = active ? "Focus actief" : "Focus";
-        if (target.textContent !== label) target.textContent = label;
+        const label = active ? "Gespreksfocus actief" : "Als gespreksfocus gebruiken";
+        target.setAttribute("aria-label", label);
+        target.setAttribute("title", label);
         const item = target.closest(".talk2d-feed-item");
         if (item && active) {
           item.dataset.focus = "true";
