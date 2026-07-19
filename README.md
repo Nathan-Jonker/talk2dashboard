@@ -2,11 +2,11 @@
 
 [English version](README_EN.md)
 
-Talk2Dashboard is een voice-first onderzoeksdemo waarmee je in gewoon Nederlands een live operationeel dashboard bevraagt en herstructureert. De agent leest zeven publieke Nederlandse datastromen, voert begrensde tools uit en past alleen de dashboardconfiguratie aan. De meetwaarden zelf blijven immutable en worden uitsluitend door deterministische backendcode verwerkt.
+Talk2Dashboard is een voice-first onderzoeksdemo voor situaties waarin je snel overzicht nodig hebt over wat er buiten gebeurt. Je kunt in gewoon Nederlands vragen om live hulpverleningsmeldingen, weer, waterstanden, verkeer, luchtkwaliteit, spoorstoringen en nieuws rond één incident of locatie te combineren. De agent bouwt daar tijdens het gesprek kaarten, tijdreeksen, ranglijsten en operationele werkbeelden van, zonder de onderliggende meetwaarden te kunnen veranderen.
+
+De focus ligt dus niet op nog een algemene chatbot, maar op **spraak naar een controleerbaar operationeel dashboard**: van een eerste signaal naar lokale context, afwijkingen en relevante voorzieningen. De agent gebruikt daarvoor zes begrensde tools en zeven publieke Nederlandse datastromen. Alleen de dashboardconfiguratie verandert; alle brondata blijft immutable en wordt door deterministische backendcode gefilterd, gekoppeld en berekend.
 
 ![Talk2Dashboard architectuur](docs/assets/architecture/talk2dashboard-architecture.png)
-
-> [Bewerkbare Excalidraw-bron](docs/assets/architecture/talk2dashboard-architecture.excalidraw)
 
 ## Demo
 
@@ -18,19 +18,21 @@ De agent voert read-only queries uit, ontvangt opaque datahandles en mag daar pa
 
 <!-- DEMO_VIDEO_PLACEHOLDER: voeg docs/assets/video/talk2dashboard-demo.mp4 toe zodra de productdemo is opgenomen. -->
 
-**Demo-video:** wordt nog opgenomen. Het gevalideerde gespreksscenario staat in [docs/PORTFOLIO_DEMO.md](docs/PORTFOLIO_DEMO.md).
+**Demo-video:** wordt nog opgenomen.
 
 ## Waarom ik dit heb gebouwd
 
-Ik ben gefascineerd door snelle taalmodellen, in het bijzonder [Gemma 4 op Cerebras](https://huggingface.co/blog/cerebras-gemma4-voice-ai) en de [multimodale Cerebras-demo's](https://www.cerebras.ai/blog/first-look-gemma-4-on-cerebras-3-fast-multimodal-apps-we-built). Bij modelkeuze gaat veel aandacht naar kwaliteit en kosten, maar snelheid is een derde hoek van hetzelfde Pareto-front. In interactieve toepassingen telt niet alleen hoeveel tokens een model produceert, maar vooral hoe snel de eerste bruikbare zin, toolcall en schermupdate verschijnen. Die wachttijd stapelt bovendien op in agent- en multi-agentworkflows.
+Ik ben de laatste tijd gefascineerd door [Gemma 4 op Cerebras](https://huggingface.co/blog/cerebras-gemma4-voice-ai) en de [snelle multimodale apps die Cerebras ermee bouwde](https://www.cerebras.ai/blog/first-look-gemma-4-on-cerebras-3-fast-multimodal-apps-we-built). Bij modellen gaat het vaak over kwaliteit en kosten. Snelheid voelt een beetje als het ondergeschoven derde punt van die driehoek, terwijl juist die in echte toepassingen ontzettend belangrijk is. En in een agent- of multi-agentflow stapelt iedere seconde wachten zich gewoon op.
 
-De [Hugging Voice-demo](https://huggingface.co/spaces/HuggingFaceM4/hugging-voice#1-one-line-migration) bracht mij op een simpele vraag: wat als je niet een half uur op een analyse- of dashboardworkflow wacht, maar tijdens een gesprek direct een bruikbaar werkbeeld opbouwt?
+Toen zag ik de [Hugging Voice-demo](https://huggingface.co/spaces/HuggingFaceM4/hugging-voice#1-one-line-migration). Daaruit kwam eigenlijk een simpele gedachte: wat als je dit gebruikt op momenten waarop je heel snel een goed dashboard nodig hebt? We zijn inmiddels gewend om voor zo'n analyse rustig een half uur op Claude Code, Cowork of Codex te wachten. Maar soms wil je tijdens het gesprek al iets bruikbaars zien.
 
-Het [incident bij de spuikokers van IJmuiden](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) maakte die use case concreet. In crisissituaties is een snel, bronvast overzicht waardevol, zeker wanneer publieke signalen later met interne operationele data worden gecombineerd. Mijn verkennende reconstructie staat in [Analyse incident spuikokers IJmuiden](docs/IJMUIDEN_INCIDENT_ANALYSIS.md). De conclusie is bewust beperkt: publieke meetreeksen hadden mogelijk eerder een afwijkend patroon zichtbaar kunnen maken, maar waren niet voldoende voor diagnose of preventie.
+Toen moest ik denken aan het [incident bij de spuikokers van IJmuiden](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/). Juist in zo'n crisissituatie wil je snel verschillende signalen bij elkaar kunnen zetten. Dat wordt natuurlijk pas echt waardevol als je er ook interne operationele data aan toevoegt.
+
+Mijn verkennende [analyse van het incident](docs/IJMUIDEN_INCIDENT_ANALYSIS.md) maakt dat concreet. In de openbare tienminutenmetingen was Buitenhuizen om 05:30 zestien centimeter in twee uur gestegen, terwijl Noordersluis Oost tegelijk circa vijftien centimeter steeg en de buitenhaven ongeveer 102 centimeter hoger stond dan de kanaalzijde. Die samengestelde regel kwam in de gebruikte voorafgaande jaarbaseline nul keer voor. Met publicatievertraging als belangrijke kanttekening had dit dus plausibel een second-line waarschuwing kunnen geven voor of rond de eerste menselijke waarneming. Niet de diagnose: daarvoor heb je interne schuifposities, bedieningsstatus en SCADA-data nodig.
 
 ## Het centrale ontwerpbesluit
 
-Op momenten waarop informatie ertoe doet, wil je voorkomen dat een taalmodel zelf data gaat herschrijven of aanvullen. Daarom is de scheiding hard:
+Het belangrijkste ontwerpbesluit is vrij simpel: de LLM mag niet aan de data zitten. Op de momenten dat het ertoe doet wil je betrouwbare bronnen, niet een model dat ongemerkt een waarde invult of een meetpunt verandert. Daarom is de scheiding hard:
 
 - adapters halen brondata op en normaliseren die;
 - snapshots en queryresultaten zijn immutable;
@@ -39,27 +41,33 @@ Op momenten waarop informatie ertoe doet, wil je voorkomen dat een taalmodel zel
 - de renderer accepteert uitsluitend gevalideerde paneltypen en bindings;
 - websearch staat standaard uit en wordt altijd als onbevestigde externe context gelabeld.
 
-Het dashboard is dus bewust begrensd. Dit is geen algemene websitegenerator en ook geen operationeel beslissysteem. De agent componeert een toegestane weergave van bestaande data.
+Het dashboard kan dus niet onbeperkt genereren. De agent krijgt vooral configuratiegereedschap en geen vrijheid om de onderliggende data te modelleren. Daarom zit er ook een websearch-toggle in: externe context kan handig zijn, maar staat standaard uit en wordt nooit vermengd met de brondata.
+
+Dat is eigenlijk wat ik met deze demo hoop te laten zien: voice kan meer zijn dan een chatbox boven een dashboard. Met snelle modellen en een paar goed begrensde tools kun je de interface tijdens het gesprek laten meebewegen, terwijl een normale backend verantwoordelijk blijft voor de feiten. Vooral bedoeld als inspiratie voor wat er met voice en snelle LLM's in real time kan, niet als claim dat dit al een productierijp crisisdashboard is.
 
 ## Proces
 
 ### 1. Nederlandse TTS kiezen
 
-Nederlandse uitspraak blijft een lastige TTS-test. Ik vergeleek cloud- en lokale modellen op eerste audio, totale generatietijd en subjectieve verstaanbaarheid:
+Dit deel was uiteindelijk redelijk simpel: Nederlandse uitspraak is nog steeds moeilijk voor TTS. Ik heb cloud- en lokale modellen vergeleken op eerste audio, totale generatietijd en vooral of ik er in het Nederlands prettig naar kon luisteren.
 
 | Route | Gebruik in de benchmark | Observatie |
 | --- | --- | --- |
-| ElevenLabs Flash v2.5 | Streaming endpoint | Veruit de beste latency-kwaliteitbalans voor deze demo; Flash levert iets in op expressiviteit ten opzichte van zwaardere modellen. |
-| Speechify | Streaming endpoint | Nederlandse output was bruikbaar, maar de eerste audio kwam in mijn runs later. |
-| Google TTS | `stream: true` | Goede controle en kwaliteit, maar wisselender en trager in deze kleine test. |
-| Voxtral / Mistral | Niet-streamend aangesloten in mijn benchmark | [Voxtral TTS ondersteunt wel streaming, Nederlands en voice cloning](https://docs.mistral.ai/studio-api/audio/text_to_speech); een goede Nederlandse clone heb ik nog niet getest. |
-| OmniVoice | Warme lokale server, volledige generatie voor playback | Een van de weinige lokale opties die Nederlands ondersteunt en op mijn 16 GB Apple Silicon-machine paste. |
+| [ElevenLabs Flash v2.5](https://elevenlabs.io/docs/overview/models#eleven-flash-v25) | Streaming endpoint | De beste latency-kwaliteitbalans in mijn test. Flash levert wat kwaliteit en expressiviteit in, maar de eerste audio is echt snel. |
+| [Speechify Simba Multilingual](https://docs.speechify.ai/tts/text-to-speech/get-started/models) | Streaming endpoint | Nederlandse output was bruikbaar, maar de eerste audio kwam in mijn runs duidelijk later. |
+| [Google Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation) | Streaming met `stream: true` | Veel controle en prima kwaliteit, maar in deze kleine test wisselender en trager. |
+| [Voxtral / Mistral](https://docs.mistral.ai/studio-api/audio/text_to_speech) | In mijn app niet-streamend aangesloten | De API biedt wel streaming, Nederlands en voice cloning, maar geen Nederlandse standaardstem die mij overtuigde. |
+| [OmniVoice](https://github.com/k2-fsa/OmniVoice) | Lokale server; pas playback na volledige generatie | Een van de weinige lokale modellen met Nederlands die gewoon op mijn 16 GB M4 MacBook paste. |
 
 ![Nederlandse TTS-benchmark met Speechify, Google, ElevenLabs, Voxtral en OmniVoice](docs/assets/media/tts-benchmark-overview.png)
 
 *De TTS-proef maakte vooral het verschil in time-to-first-audio zichtbaar. Dit is een momentopname uit mijn lokale benchmark, geen onafhankelijke providerbenchmark.*
 
-De lokale kandidaten waren [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice), [Higgs Audio V2 / Higgs TTS 3](https://huggingface.co/bosonai/higgs-tts-3-4b) en [Fish Audio S2 Pro](https://huggingface.co/fishaudio/s2-pro). OmniVoice was niet snel genoeg voor deze voice-agentroute, maar het is indrukwekkend dat een meertalig model lokaal op deze hardware bruikbare Nederlandse audio kan maken.
+Ik heb lokaal onder meer gekeken naar [OmniVoice](https://github.com/k2-fsa/OmniVoice), [Higgs TTS 3 4B](https://huggingface.co/bosonai/higgs-tts-3-4b), [Voxtral Mini 4B](https://docs.mistral.ai/studio-api/audio/text_to_speech) en [Fish Audio S2 Pro](https://huggingface.co/fishaudio/s2-pro). Veel modellen vielen op een 16 GB MacBook al snel af. OmniVoice was een van de weinige modellen die én paste én Nederlands ondersteunde. Daar moest wel een eigen warme lokale wrapper omheen en de audio kwam pas na de volledige generatie terug. Niet snel genoeg voor deze route, maar wel best vet dat dit lokaal draait en de kwaliteit niet om te janken is.
+
+Voxtral was een apart geval. Mistral ondersteunt Nederlands als taal en de TTS-API kan streamen, maar er zat geen Nederlandse standaardstem tussen die voor deze test werkte. Ik kwam er later achter dat de interessante route juist [voice cloning](https://docs.mistral.ai/studio-api/audio/text_to_speech) is. Dat wil ik nog eens testen met mijn eigen stem of een goede Nederlandse referentiestem, want de latency lijkt wel veelbelovend.
+
+ElevenLabs won uiteindelijk vrij overtuigend. Hun stemmen vind ik sowieso ongekend goed en Flash v2.5 leverde in mijn meting veruit het snelst bruikbare audio. Natuurlijk lever je ten opzichte van een zwaarder kwaliteitsmodel iets in, maar voor een gesprek als dit weegt die latency heel zwaar.
 
 [Beluister de Nederlandse OmniVoice-sample (MP3)](docs/assets/audio/omnivoice-dutch-sample.mp3)
 
@@ -76,23 +84,27 @@ Daarna vergeleek ik vier routes met dezelfde Nederlandse opdrachten, dashboardto
 
 *De replay-suite stuurde dezelfde opnames naar alle vier routes en legde transcript-, tool-, audio- en turnlatency vast.*
 
-OpenAI en Google waren native speech-to-speechroutes. De Cerebras-route was een cascade van STT, LLM en TTS. ElevenLabs Agents orkestreerde de gesprekspipeline en client tools als platformdienst. Parakeet was de snelste bruikbare lokale Nederlandse transcriptieroute die ik testte, maar de resterende transcriptiefouten waren relevant voor plaatsnamen en operationele termen.
+OpenAI Realtime en Google Live waren in deze vergelijking de native live speech-to-speechmodellen. De Cerebras-route was heel expliciet een cascade: lokale Parakeet V3 voor STT, Gemma 4 op Cerebras als LLM en ElevenLabs Flash voor TTS. ElevenLabs Agents is onder de motorkap óók STT → LLM → TTS, met daarnaast een eigen turn-takingmodel en de hele agent-, tool- en monitoringlaag eromheen. Dat staat ook zo in de [ElevenLabs-architectuur](https://elevenlabs.io/docs/eleven-agents/overview).
+
+Parakeet was het snelste en beste lokale Nederlandse transcriptiemodel dat ik kende, maar uiteindelijk nog niet goed genoeg voor alle adressen, plaatsnamen en operationele afkortingen. OpenAI voelde in mijn Nederlandse gesprekken nog te nep en viel daardoor vrij snel af. Ik kan wel niet wachten om deze use case opnieuw te testen met [GPT-Live](https://openai.com/index/introducing-gpt-live/). Google Live vond ik heel veelbelovend, maar de preview-API en vooral de toolcyclus waren soms nog flaky.
+
+ElevenLabs had naast de stem ook een praktisch voordeel: een volwassen dashboard, veel instellingen, goede gespreksmonitoring en een platform dat de hele cascade al op lage latency probeert te optimaliseren. Grappig genoeg kwam ik daarmee weer uit bij STT → LLM → TTS. Native voice-to-voice was voor mijn Nederlandse use case nog niet automatisch de beste ervaring.
+
+Daarna heb ik binnen ElevenLabs nog modellen vergeleken. Ik begon met Gemma 4 via Cerebras, maar iedere externe LLM-hop kost opnieuw latency. Daarom ben ik uiteindelijk overgestapt op de door ElevenLabs gehoste, non-reasoning `Qwen3.6-35B-A3B`. Geen grote wetenschappelijke test, maar de toolcalling was goed genoeg en time-to-first-sentence was het laagst. Voor korte gesproken antwoorden vind ik TTFT/TTFS belangrijker dan een indrukwekkende maximale tokens-per-seconde-score.
+
+![Time to first sentence in de ElevenLabs-modeltest](docs/assets/media/elevenlabs-time-to-first-sentence.jpeg)
+
+*In deze kleine modelproef waren blauw Gemma 4 via Cerebras, geel Qwen 35B en paars Qwen 397B. Qwen 35B bood hier de beste combinatie van eerste-zinlatency en bruikbare toolcalling.*
+
+Zie voor bredere modelmetingen ook de [Artificial Analysis-vergelijking](https://artificialanalysis.ai/models/gemini-3-pro?models=qwen3-6-35b-a3b%2Cqwen3-6-35b-a3b-non-reasoning%2Cqwen3-5-397b-a17b%2Cqwen3-5-397b-a17b-non-reasoning%2Cgemma-4-31b-non-reasoning%2Cgemma-4-31b).
 
 ![Voice-agentbenchmark met live events, replay en een gedeeld Vizro-dashboard](docs/assets/media/voice-agent-operational-console.png)
 
 *Iedere route kreeg dezelfde dashboardstate en tools, zodat naast spraakkwaliteit ook de uitgevoerde aanpassing zichtbaar bleef.*
 
-OpenAI voelde in deze test nog onnatuurlijk in het Nederlands. Google Live was veelbelovend, maar het previewmodel en de live toolcyclus waren soms instabiel. ElevenLabs combineerde goede stemmen met een volwassen agentdashboard, session lifecycle en uitgebreide instellingen. Uiteindelijk koos ik een ElevenLabs-native, non-reasoning `Qwen3.6-35B-A3B` in plaats van een externe Cerebras-call voor ieder antwoord: in mijn kleine test bleef toolcalling goed genoeg en was time-to-first-sentence het laagst.
-
-Voor korte gesproken antwoorden is TTFT/TTFS belangrijker dan maximale tokens per seconde. De vergelijking was verkennend en geen statistisch modelonderzoek. Zie ook de bredere [Artificial Analysis-modelvergelijking](https://artificialanalysis.ai/models/gemini-3-pro?models=qwen3-6-35b-a3b%2Cqwen3-6-35b-a3b-non-reasoning%2Cqwen3-5-397b-a17b%2Cqwen3-5-397b-a17b-non-reasoning%2Cgemma-4-31b-non-reasoning%2Cgemma-4-31b).
-
 ![ElevenLabs Spotlight met gesprekken, topics en operationele agentmetrics](docs/assets/media/elevenlabs-agent-spotlight.png)
 
 *De platformlaag gaf daarnaast inzicht in gesprekken, topics, latency en mislukte toolcalls.*
-
-![Time to first sentence in de ElevenLabs-modeltest](docs/assets/media/elevenlabs-time-to-first-sentence.jpeg)
-
-*In deze kleine modelproef waren blauw Gemma 4 via Cerebras, geel Qwen 35B en paars Qwen 397B. Qwen 35B bood hier de beste combinatie van eerste-zinlatency en bruikbare toolcalling.*
 
 De aparte TTS- en voice-agentvergelijkers zijn niet opgenomen in deze repository, maar de code is op aanvraag beschikbaar.
 
@@ -131,10 +143,6 @@ De agent heeft zes brede tools:
 
 Panelen zijn eveneens begrensd: feeds, events, KPI's, ranglijsten, tijdreeksen, vergelijkingen, correlaties, 2D/3D-kaarten, Places, bronstatus, evidence en een duidelijk gelabelde AI-samenvatting. Een panel bindt aan maximaal zes gevalideerde bronnen; het dashboard toont maximaal twaalf operationele panelen.
 
-## Wat ik hoop dat dit laat zien
-
-Voice is niet alleen een chatlaag boven een dashboard. Met snelle modellen en kleine, goed ontworpen tools kan een gesprek de interface zelf aanpassen terwijl de data-integriteit bij deterministische systemen blijft. Dit project is vooral bedoeld als inspiratie voor real-time analytics en crisiscontext, niet als claim dat dit al een productierijp overheidsdashboard is.
-
 ## Inspiratie en credits
 
 - [Reson8](https://console.reson8.dev/custom-models), een interessant Nederlands voicebedrijf waarvan ik de custom-modelroute graag verder wil testen.
@@ -146,16 +154,14 @@ Voice is niet alleen een chatlaag boven een dashboard. Met snelle modellen en kl
 ## Beperkingen en toekomstwerk
 
 - De productdemo-MP4 moet nog worden opgenomen.
-- Betrouwbare parallelle toolcalls zijn afhankelijk van het gekozen agentmodel; onafhankelijke operaties binnen `data_batch` draaien wel parallel.
-- Toolcalls tijdens doorlopende spraak en echte full-duplex interactie verdienen een nieuwe test met [GPT-Live](https://openai.com/index/introducing-gpt-live/) en volgende generaties Gemini Live.
-- Nederlandse STT blijft kwetsbaar voor adressen, afkortingen en plaatsnamen.
-- De toolcatalogus is doelbewust klein, maar schaalt niet onbeperkt; een volgende versie kan specialistische subagents of een capability router gebruiken.
-- De UI en panelrenderer kunnen verder richting een volledig custom frontend.
-- Historie is lokaal opgebouwd en in v1 begrensd op twee dagen. Een verse installatie kan geen historie terugwerkend uitvinden.
-- Publieke bronnen kennen vertraging, uitval, onvolledigheid en uiteenlopende trustniveaus. P2000 is geen algemene officiële overheidsfeed.
-- Automatische triggers op nieuws, P2000 of waterdrempels zijn interessant toekomstwerk, maar vereisen zorgvuldige false-positiveanalyse. Zie de [IJmuiden-notitie](docs/IJMUIDEN_INCIDENT_ANALYSIS.md).
-- Meer bronnen zouden de applicatie richting een systeem als World Monitor bewegen, maar vragen ook om strengere bronselectie en informatiearchitectuur.
-- Productiegebruik vereist authenticatie, secretsbeheer, observability, rate limiting, privacybeoordeling, beheerprocessen en aansluiting op interne operationele systemen.
+- Parallelle toolcalls door de ElevenLabs-agent zelf zijn op dit moment niet gedocumenteerd en zitten ook niet in deze demo. De [client-toolflow](https://elevenlabs.io/docs/eleven-agents/customization/tools/client-tools) wacht bij een blocking tool op het resultaat. Binnen onze ene `data_batch`-call draaien onafhankelijke queries wel parallel, maar dat is batching achter de tool en dus iets anders. Echte parallelle toolcalls blijven een interessant opvolgpunt.
+- Toolcalls terwijl de agent al praat, en uiteindelijk een model dat echt tegelijk kan luisteren, spreken en handelen.
+- Beter nadenken over hoeveel tools je een agent geeft. Zes brede tools werkt voor deze demo, maar dit schaalt niet vanzelf netjes door. Een multi-agentopzet of slimmere capability router is een logisch vervolg.
+- De UX/UI en de panelen mogen nog veel mooier. Vizro was snel om dit te bouwen, maar voor een volgende versie zou ik waarschijnlijk verder richting een custom frontend gaan.
+- Meer en vooral interne bronnen. Met alleen maar meer openbare feeds schuift dit al snel richting iets als [World Monitor](https://www.worldmonitor.app/dashboard); met interne data wordt het pas echt een gespecialiseerde operationele toepassing.
+- Automatisch starten bij specifieke nieuwsberichten, P2000-meldingen of waterdrempels. Dat zou bij een scenario zoals IJmuiden interessant zijn, maar vraagt natuurlijk om goede drempels en false-positivecontrole. Zie de [IJmuiden-analyse](docs/IJMUIDEN_INCIDENT_ANALYSIS.md).
+- Nederlandse STT blijft lastig bij adressen, afkortingen en plaatsnamen. Ook Voxtral met een goede Nederlandse voice clone wil ik nog testen.
+- En uiteindelijk nog een serieuze productieronde voor beveiliging, privacy, broncontracten en beheer. Dit blijft nu bewust een lokale onderzoeksdemo.
 
 <details>
 <summary><strong>De demo lokaal starten</strong></summary>
@@ -213,7 +219,7 @@ make smoke
 make quality
 ```
 
-Raadpleeg `.env.example`, `TECH_SPEC.md` en `docs/PORTFOLIO_DEMO.md` voor de volledige configuratie en het gevalideerde scenario.
+Raadpleeg `.env.example` voor alle configuratieopties.
 
 </details>
 

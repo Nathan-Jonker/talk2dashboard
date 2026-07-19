@@ -2,11 +2,11 @@
 
 [Nederlandse versie](README.md)
 
-Talk2Dashboard is a voice-first research demo for querying and restructuring a live operational dashboard in natural Dutch. The agent reads seven Dutch public-data streams, executes bounded tools, and changes only the dashboard configuration. Measurements remain immutable and are processed exclusively by deterministic backend code.
+Talk2Dashboard is a voice-first research demo for situations where operators need a useful view of the outside world quickly. In natural Dutch, you can combine live emergency-service signals, weather, water levels, traffic, air quality, rail disruptions and news around one incident or location. During the conversation, the agent turns that context into maps, time series, rankings and operational views without being able to modify the underlying measurements.
+
+The focus is not another general chatbot, but **speech to a verifiable operational dashboard**: moving from an initial signal to local context, anomalies and relevant nearby services. The agent uses six bounded tools over seven Dutch public-data streams. Only the dashboard configuration changes; source data remains immutable and is filtered, joined and calculated by deterministic backend code.
 
 ![Talk2Dashboard architecture](docs/assets/architecture/talk2dashboard-architecture.png)
-
-> [Editable Excalidraw source](docs/assets/architecture/talk2dashboard-architecture.excalidraw)
 
 ## Demo
 
@@ -18,7 +18,7 @@ The agent runs read-only queries, receives opaque data handles and can bind pane
 
 <!-- DEMO_VIDEO_PLACEHOLDER: add docs/assets/video/talk2dashboard-demo.mp4 after recording the product demo. -->
 
-**Demo video:** still to be recorded. The validated walkthrough is documented in [docs/PORTFOLIO_DEMO.md](docs/PORTFOLIO_DEMO.md).
+**Demo video:** still to be recorded.
 
 ## Why I built this
 
@@ -26,7 +26,9 @@ I have become fascinated by fast language models, especially [Gemma 4 on Cerebra
 
 The [Hugging Voice demo](https://huggingface.co/spaces/HuggingFaceM4/hugging-voice#1-one-line-migration) led to a simple question: what if an operator did not wait thirty minutes for an analysis or dashboard workflow, but built a useful view during the conversation itself?
 
-The [IJmuiden discharge-sluice incident](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) made that use case concrete. Fast, source-grounded situational awareness can be valuable in a crisis, especially when public signals are later combined with internal operational data. My exploratory reconstruction is documented in [IJmuiden discharge-sluice incident analysis](docs/IJMUIDEN_INCIDENT_ANALYSIS_EN.md). The conclusion is deliberately narrow: public time series may have exposed an anomalous pattern earlier, but were insufficient for diagnosis or prevention.
+The [IJmuiden discharge-sluice incident](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) made that use case concrete. Fast, source-grounded situational awareness can be valuable in a crisis, especially when public signals are later combined with internal operational data.
+
+My exploratory [incident analysis](docs/IJMUIDEN_INCIDENT_ANALYSIS_EN.md) makes this more specific. At 05:30, the public ten-minute series showed a sixteen-centimetre rise at Buitenhuizen over two hours, while Noordersluis East rose by roughly fifteen centimetres and the outside harbour stood approximately 102 centimetres above the canal side. That composite rule did not occur once in the preceding one-year baseline used. Allowing for publication latency, it could plausibly have produced a second-line warning before or around the first human observation. It could not diagnose the cause; that requires internal gate-position, control-state and SCADA data.
 
 ## The central design decision
 
@@ -49,11 +51,11 @@ Dutch pronunciation remains a difficult TTS benchmark. I compared cloud and loca
 
 | Route | Benchmark integration | Observation |
 | --- | --- | --- |
-| ElevenLabs Flash v2.5 | Streaming endpoint | The best latency-quality balance in this demo; Flash sacrifices some expressiveness compared with larger models. |
-| Speechify | Streaming endpoint | Usable Dutch output, but first audio arrived later in my runs. |
-| Google TTS | `stream: true` | Good control and quality, but slower and more variable in this small test. |
-| Voxtral / Mistral | Connected without streaming in my benchmark | [Voxtral TTS does support streaming, Dutch and voice cloning](https://docs.mistral.ai/studio-api/audio/text_to_speech); I have not yet tested a good Dutch clone. |
-| OmniVoice | Warm local server, full generation before playback | One of the few local multilingual options that fitted my 16 GB Apple Silicon machine. |
+| [ElevenLabs Flash v2.5](https://elevenlabs.io/docs/overview/models#eleven-flash-v25) | Streaming endpoint | The best latency-quality balance in this demo; Flash sacrifices some expressiveness compared with larger models. |
+| [Speechify Simba Multilingual](https://docs.speechify.ai/tts/text-to-speech/get-started/models) | Streaming endpoint | Usable Dutch output, but first audio arrived later in my runs. |
+| [Google Gemini TTS](https://ai.google.dev/gemini-api/docs/speech-generation) | `stream: true` | Good control and quality, but slower and more variable in this small test. |
+| [Voxtral / Mistral](https://docs.mistral.ai/studio-api/audio/text_to_speech) | Connected without streaming in my benchmark | Voxtral TTS does support streaming, Dutch and voice cloning; I have not yet tested a good Dutch clone. |
+| [OmniVoice](https://github.com/k2-fsa/OmniVoice) | Warm local server, full generation before playback | One of the few local multilingual options that fitted my 16 GB Apple Silicon machine. |
 
 ![Dutch TTS benchmark with Speechify, Google, ElevenLabs, Voxtral and OmniVoice](docs/assets/media/tts-benchmark-overview.png)
 
@@ -76,13 +78,13 @@ I then compared four routes with the same Dutch instructions, dashboard tools an
 
 *The replay suite sent the same recordings to all four routes and captured transcript, tool, audio and total-turn latency.*
 
-OpenAI and Google were native speech-to-speech routes. The Cerebras route was a cascade of STT, LLM and TTS. ElevenLabs Agents orchestrated the conversational pipeline and client tools as a platform service. Parakeet was the fastest useful local Dutch transcription route I tested, but remaining transcription errors mattered for place names and operational terminology.
+OpenAI and Google were native speech-to-speech routes. The Cerebras route was an explicit Parakeet STT -> Gemma 4 LLM -> ElevenLabs Flash TTS cascade. [ElevenLabs Agents](https://elevenlabs.io/docs/eleven-agents/overview) is also STT -> LLM -> TTS under the hood, with its own turn-taking, tool and monitoring layer around that pipeline. Parakeet was the fastest useful local Dutch transcription route I tested, but remaining transcription errors mattered for place names and operational terminology.
 
-![Voice-agent benchmark with live events, replay and one shared Vizro dashboard](docs/assets/media/voice-agent-operational-console.png)
+OpenAI still felt unnatural in Dutch in this test and therefore dropped out quickly. I do want to retest this use case with [GPT-Live](https://openai.com/index/introducing-gpt-live/). Google Live was promising, but the preview model and live tool loop were occasionally unstable. ElevenLabs combined good voices with a mature agent dashboard, session lifecycle and extensive configuration. I ultimately selected a native, non-reasoning ElevenLabs `Qwen3.6-35B-A3B` rather than calling Cerebras externally for every response: in my small test, tool use remained good enough and time to first sentence was lowest.
 
-*Every route received the same dashboard state and tools, making the actual interface change visible alongside speech quality.*
+![Time to first sentence in the ElevenLabs model test](docs/assets/media/elevenlabs-time-to-first-sentence.jpeg)
 
-OpenAI still felt unnatural in Dutch in this test. Google Live was promising, but the preview model and live tool loop were occasionally unstable. ElevenLabs combined good voices with a mature agent dashboard, session lifecycle and extensive configuration. I ultimately selected a native, non-reasoning ElevenLabs `Qwen3.6-35B-A3B` rather than calling Cerebras externally for every response: in my small test, tool use remained good enough and time to first sentence was lowest.
+*In this small model experiment, blue represented Gemma 4 through Cerebras, yellow Qwen 35B and purple Qwen 397B. Qwen 35B offered the strongest combination of first-sentence latency and usable tool calling here.*
 
 For short spoken responses, TTFT/TTFS matters more than maximum tokens per second. This was an exploratory comparison, not a statistically rigorous model benchmark. See the broader [Artificial Analysis comparison](https://artificialanalysis.ai/models/gemini-3-pro?models=qwen3-6-35b-a3b%2Cqwen3-6-35b-a3b-non-reasoning%2Cqwen3-5-397b-a17b%2Cqwen3-5-397b-a17b-non-reasoning%2Cgemma-4-31b-non-reasoning%2Cgemma-4-31b).
 
@@ -90,9 +92,9 @@ For short spoken responses, TTFT/TTFS matters more than maximum tokens per secon
 
 *The platform layer also exposed conversations, topics, latency and failed tool calls.*
 
-![Time to first sentence in the ElevenLabs model test](docs/assets/media/elevenlabs-time-to-first-sentence.jpeg)
+![Voice-agent benchmark with live events, replay and one shared Vizro dashboard](docs/assets/media/voice-agent-operational-console.png)
 
-*In this small model experiment, blue represented Gemma 4 through Cerebras, yellow Qwen 35B and purple Qwen 397B. Qwen 35B offered the strongest combination of first-sentence latency and usable tool calling here.*
+*Every route received the same dashboard state and tools, making the actual interface change visible alongside speech quality.*
 
 The separate TTS and voice-agent comparison applications are not included in this repository, but their code is available on request.
 
@@ -146,7 +148,7 @@ Voice is not merely a chat layer on top of a dashboard. With fast models and sma
 ## Limitations and future work
 
 - The product-demo MP4 still needs to be recorded.
-- Reliable platform-level parallel tool calls depend on the selected agent model; independent operations within `data_batch` already run concurrently.
+- Parallel agent-level tool calls are not documented in the current ElevenLabs client-tool flow and are not part of this demo. A blocking client tool waits for its response. Independent queries inside one `data_batch` call do run concurrently, but that is backend batching rather than parallel agent tool calling.
 - Tool use during continuous speech and true full-duplex interaction should be retested with [GPT-Live](https://openai.com/index/introducing-gpt-live/) and later Gemini Live generations.
 - Dutch STT remains vulnerable to addresses, abbreviations and place names.
 - The tool catalogue is intentionally small but will not scale indefinitely; a next version could use specialist subagents or a capability router.
@@ -213,7 +215,7 @@ make smoke
 make quality
 ```
 
-See `.env.example`, `TECH_SPEC.md` and `docs/PORTFOLIO_DEMO.md` for full configuration and the validated scenario.
+See `.env.example` for all configuration options.
 
 </details>
 

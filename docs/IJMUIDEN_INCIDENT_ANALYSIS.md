@@ -1,5 +1,25 @@
 # Verkennende open-data-analyse: incident spuikokers IJmuiden
 
+## Kernconclusie
+
+**Openbare waterdata had dit incident waarschijnlijk eerder als uitzonderlijk patroon kunnen signaleren, maar niet kunnen diagnosticeren.** De reconstructie combineert drie soorten bewijs:
+
+1. de officiële tijdlijn uit het incidentonderzoek van Rijkswaterstaat;
+2. openbare tienminutenmetingen rond het incident van 1 tot en met 5 november 2023;
+3. een aparte jaarreeks van 1 november 2022 tot en met 3 november 2023 om dezelfde detectieregels op historische false positives te toetsen.
+
+Om 05:30 was Buitenhuizen zestien centimeter in twee uur gestegen. Noordersluis Oost steeg in hetzelfde venster circa vijftien centimeter en de buitenhaven stond ongeveer 102 centimeter hoger dan de kanaalzijde. De losse regel `Buitenhuizen +15 cm / 2 uur` kwam in de gebruikte voorafgaande jaarbaseline op nul andere alarmdagen voor. De gecombineerde regel over beide binnenmeetpunten en het buiten-binnenverschil kwam daar eveneens niet voor. Dat maakt 05:30 achteraf een plausibel moment voor een serieuze second-line waarschuwing: ongeveer vijftien minuten voor de eerste RWS-waarneming en veertig minuten voor de diagnosehypothese van AGV.
+
+Dat is nadrukkelijk geen bewijs dat het incident daarmee was voorkomen. De regel is achteraf opgesteld, één jaar historie is beperkt en het 05:30-meetpunt was door middeling en publicatievertraging waarschijnlijk pas enkele minuten later beschikbaar. Bovendien kan openbare waterdata niet vertellen dat de spuikokers openstaan; daarvoor zijn interne schuifposities, bedieningsstatus, commando-feedback en SCADA-alarmen nodig.
+
+## Publieke bronnen en reproduceerbaarheid
+
+- [Rijkswaterstaat Waterinfo](https://waterinfo.rws.nl/) voor het bekijken en exporteren van meetreeksen;
+- [Rijkswaterstaat Waterdata](https://www.rijkswaterstaat.nl/water/waterdata) voor uitleg en toegang tot actuele en historische waterdata; historische waterkwantiteitsdata staat in Waterinfo onder het tabblad **Expert**;
+- [officiële evaluatie van het incident](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) voor de operationele tijdlijn en onderzoeksrapporten.
+
+De incidentreconstructie gebruikte een Waterinfo-export over 1 tot en met 5 november 2023. De false-positivecontrole gebruikte bewust een langere, afzonderlijke RWS-reeks van 1 november 2022 tot en met 3 november 2023 en telde alleen dagen vóór het incidentvenster. Daardoor betekent `0` in de tabel hieronder: **nul andere alarmdagen waarop exact die regel in deze baseline afging**. Het betekent niet dat de regel in alle seizoenen en toekomstige jaren gegarandeerd nul false positives heeft.
+
 ## Samenvatting
 
 Op 2 november 2023 bleef volgens de [officiële evaluatiepagina van Rijkswaterstaat](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) een spuikoker bij IJmuiden door een storing ongecontroleerd openstaan toen het vloed werd. Zeewater stroomde het Noordzeekanaal in en het waterpeil steeg snel. Deze notitie onderzoekt een beperkte vervolgvraag: had een onafhankelijke monitor op basis van openbare meetreeksen eerder een afwijkend patroon kunnen signaleren?
@@ -11,7 +31,7 @@ Het voorzichtige antwoord is **waarschijnlijk wel voor eerdere waarschuwing, nie
 De analyse is gebaseerd op:
 
 - de publieke evaluatie van Rijkswaterstaat;
-- openbare Rijkswaterstaat-waterstandsreeksen rond IJmuiden en het Noordzeekanaal;
+- openbare [Rijkswaterstaat Waterinfo](https://waterinfo.rws.nl/)-waterstandsreeksen rond IJmuiden en het Noordzeekanaal;
 - een reproduceerbare Codex-analyse van een jaar RWS-waterhoogtedata en KNMI-uurdata;
 - de afzonderlijke ChatGPT-verkenning die aanleiding gaf om detectie, diagnose en preventie strikt uit elkaar te houden.
 
@@ -61,7 +81,9 @@ In de verkennende reconstructie:
 | Buitenhuizen `+20 cm / 3 uur` | 05:50 | 0 |
 | Buitenhuizen `+24 cm / 4 uur` | 06:10 | 0 |
 
-De sterkste kandidaat combineerde drie voorwaarden: Buitenhuizen stijgt minimaal vijftien centimeter in twee uur, IJmuiden Noordersluis oost stijgt minimaal tien centimeter in twee uur en de buitenhaven staat minimaal vijftig centimeter hoger dan de kanaalzijde. Die regel gaf rond 05:30 een signaal en kwam niet voor op andere alarmdagen in de gebruikte jaarbaseline.
+De regel `Buitenhuizen +15 cm / 2 uur` is interessant omdat de kortere drempels vaak afgingen: `+5 cm / 30 min` op 79 dagen en `+8 cm / 60 min` op 16 dagen. Vijftien centimeter over twee uur ving juist een **aanhoudende** stijging en kwam in de gebruikte jaarbaseline op nul andere alarmdagen voor. Om 05:30 stond die uitslag bovendien niet op zichzelf: Noordersluis Oost liet gelijktijdig vrijwel dezelfde binnenwaterstijging zien. Dat verkleint de kans dat het slechts om ruis of één afwijkende sensor ging.
+
+De sterkste kandidaat combineerde daarom drie voorwaarden: Buitenhuizen stijgt minimaal vijftien centimeter in twee uur, IJmuiden Noordersluis Oost stijgt minimaal tien centimeter in twee uur en de buitenhaven staat minimaal vijftig centimeter hoger dan de kanaalzijde. Die regel gaf rond 05:30 een signaal en kwam niet voor op andere alarmdagen in de gebruikte jaarbaseline. Juist de combinatie van duur, ruimtelijke bevestiging en de buiten-binnengradiënt maakt dit een geloofwaardiger eerder signaal dan één losse waterstandsdrempel.
 
 Dat is sterker dan een losse drempel, maar nog geen operationeel gevalideerd model. Waterinfo gebruikt rond deze reeks een gemiddelde over het vorige en volgende vijfminutenvenster; een 05:30-punt is dus pas ongeveer 05:35 compleet, plus eventuele publicatievertraging. Ook nul historische alarmdagen in één jaar bewijst niet dat de regel generaliseert.
 
