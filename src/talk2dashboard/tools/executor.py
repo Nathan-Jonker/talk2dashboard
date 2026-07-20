@@ -127,7 +127,9 @@ class ToolExecutor:
         audit_ref = f"audit_{uuid4().hex}"
         result, error, ok = await self._invoke(name, request)
         ended = time.monotonic_ns()
-        after = self.dashboard.current(optional=True)
+        # Public non-dashboard tools cannot mutate the dashboard configuration.
+        # Reuse the pre-call version instead of opening a second read transaction.
+        after = before
         bundle = self.sources.latest_bundle_version()
         with self.database.session() as session:
             session.add(
@@ -417,16 +419,51 @@ class ToolExecutor:
                 )
             ):
                 parallel_inputs.append((index, self._normalize_data_query(raw_query, {})))
+        cached_handles = await asyncio.gather(
+            *(
+                asyncio.to_thread(self.query.find_existing, query_spec, bundle_version)
+                for _index, query_spec in parallel_inputs
+            )
+        )
+        precomputed_handles = {
+            index: handle
+            for (index, _query_spec), handle in zip(
+                parallel_inputs, cached_handles, strict=True
+            )
+            if handle is not None
+        }
+        missing_inputs = [
+            item for item, handle in zip(parallel_inputs, cached_handles, strict=True)
+            if handle is None
+        ]
+        current_snapshot_indexes = {
+            index
+            for index, query_spec in missing_inputs
+            if not query_spec.get("window")
+            and query_spec.get("operation", "query") != "baseline"
+        }
+        shared_bundle_rows = (
+            await asyncio.to_thread(self.query.rows_for_bundle, bundle_version)
+            if len(current_snapshot_indexes) >= 2
+            else None
+        )
         parallel_prepared = await asyncio.gather(
             *(
-                asyncio.to_thread(self.query.prepare, query_spec, bundle_version)
-                for _index, query_spec in parallel_inputs
+                asyncio.to_thread(
+                    self.query.prepare,
+                    query_spec,
+                    bundle_version,
+                    bundle_rows=(
+                        shared_bundle_rows if index in current_snapshot_indexes else None
+                    ),
+                )
+                for index, query_spec in missing_inputs
             )
         )
         precomputed_queries = {
             index: prepared
             for (index, _query_spec), prepared in zip(
-                parallel_inputs, parallel_prepared, strict=True
+                missing_inputs, parallel_prepared, strict=True
             )
         }
 
@@ -484,6 +521,8 @@ class ToolExecutor:
                     resolved_bundle,
                     900,
                 )
+            elif index in precomputed_handles:
+                handle = precomputed_handles[index]
             elif index in precomputed_queries:
                 kind, normalized_query, rows, resolved_bundle = precomputed_queries[index]
                 handle = await asyncio.to_thread(
@@ -913,22 +952,24 @@ class ToolExecutor:
             origin_reference = resolution.resolution_id
             origin_label = resolution.display_label
         elif origin_text:
-            try:
-                geocoded = await self.geocoding.resolve(origin_text)
-            except RuntimeError as exc:
-                if str(exc) == "GOOGLE_GEOCODING_NOT_CONFIGURED":
+            resolution = self.locations.find_active(origin_text)
+            if resolution is None:
+                try:
+                    geocoded = await self.geocoding.resolve(origin_text)
+                except RuntimeError as exc:
+                    if str(exc) == "GOOGLE_GEOCODING_NOT_CONFIGURED":
+                        raise ToolExecutionError(
+                            "GOOGLE_GEOCODING_NOT_CONFIGURED",
+                            "Google Geocoding is niet geconfigureerd voor plaatsnamen.",
+                        ) from exc
+                    raise
+                matches = geocoded.get("matches") or []
+                if not matches:
                     raise ToolExecutionError(
-                        "GOOGLE_GEOCODING_NOT_CONFIGURED",
-                        "Google Geocoding is niet geconfigureerd voor plaatsnamen.",
-                    ) from exc
-                raise
-            matches = geocoded.get("matches") or []
-            if not matches:
-                raise ToolExecutionError(
-                    "LOCATION_NOT_RESOLVED",
-                    "Google vond geen eenduidige locatie; verduidelijk de plaats of het adres.",
-                )
-            resolution = self.locations.put(origin_text, matches[0])
+                        "LOCATION_NOT_RESOLVED",
+                        "Google vond geen eenduidige locatie; verduidelijk de plaats of het adres.",
+                    )
+                resolution = self.locations.put(origin_text, matches[0])
             rows = [
                 {"location": {"latitude": resolution.latitude, "longitude": resolution.longitude}}
             ]

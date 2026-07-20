@@ -71,6 +71,33 @@ class QueryEngine:
             ).all()
             return [json.loads(record.payload_json) for record in records]
 
+    def rows_for_bundle(self, bundle_version: str) -> list[dict[str, Any]]:
+        """Load one immutable bundle snapshot for reuse within a query batch."""
+        return self._rows_for_bundle(bundle_version)
+
+    def find_existing(
+        self, query_spec: dict[str, Any], bundle_version: str | None = None
+    ) -> DataHandle | None:
+        """Return an unexpired content-addressed handle before rerunning its query."""
+        normalized = self._normalize_query(query_spec)
+        resolved_bundle = bundle_version or self.latest_bundle()
+        query_hash = canonical_hash(normalized)
+        now = datetime.now(UTC)
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(DataHandleRow)
+                .where(
+                    DataHandleRow.query_hash == query_hash,
+                    DataHandleRow.source_bundle_version == resolved_bundle,
+                )
+                .order_by(DataHandleRow.created_at.desc())
+            ).all()
+            for row in rows:
+                if row.expires_at and self._as_datetime(row.expires_at) <= now:
+                    continue
+                return DataHandle.model_validate(json.loads(row.payload_json)["handle"])
+        return None
+
     def _rows_for_history(self, query: dict[str, Any]) -> list[dict[str, Any]]:
         streams = set(query.get("streams") or ([query["stream"]] if query.get("stream") else []))
         metrics = set(query.get("metrics") or ([query["metric"]] if query.get("metric") else []))
@@ -159,6 +186,7 @@ class QueryEngine:
         bundle_version: str | None = None,
         *,
         origin_location: dict[str, Any] | None = None,
+        bundle_rows: list[dict[str, Any]] | None = None,
     ) -> tuple[HandleKind, dict[str, Any], list[dict[str, Any]], str]:
         """Run the read-only query phase without persisting a handle.
 
@@ -207,6 +235,8 @@ class QueryEngine:
             source_rows = (
                 self._rows_for_history(normalized)
                 if use_history
+                else bundle_rows
+                if bundle_rows is not None
                 else self._rows_for_bundle(bundle_version)
             )
         external_spatial_filters = None
@@ -249,6 +279,10 @@ class QueryEngine:
         return kind, normalized, rows, bundle_version
 
     def execute(self, query_spec: dict[str, Any], bundle_version: str | None = None) -> DataHandle:
+        if not query_spec.get("input_handle"):
+            existing = self.find_existing(query_spec, bundle_version)
+            if existing is not None:
+                return existing
         kind, normalized, rows, resolved_bundle = self.prepare(query_spec, bundle_version)
         ttl_seconds = (
             900

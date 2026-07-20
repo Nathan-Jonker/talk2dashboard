@@ -600,14 +600,14 @@ async def test_data_batch_runs_independent_queries_in_parallel(services, monkeyp
     active = 0
     max_active = 0
 
-    def delayed_prepare(query_spec, bundle_version=None):
+    def delayed_prepare(query_spec, bundle_version=None, *, bundle_rows=None):
         nonlocal active, max_active
         with lock:
             active += 1
             max_active = max(max_active, active)
         try:
             time.sleep(0.05)
-            return original_prepare(query_spec, bundle_version)
+            return original_prepare(query_spec, bundle_version, bundle_rows=bundle_rows)
         finally:
             with lock:
                 active -= 1
@@ -642,6 +642,80 @@ async def test_data_batch_runs_independent_queries_in_parallel(services, monkeyp
     assert max_active >= 2
     assert isinstance(response.result, dict)
     assert list(response.result["aliases"]) == ["incidents", "wind"]
+
+
+async def test_data_batch_reuses_handle_before_preparing_same_query(services, monkeypatch):
+    executor = await _executor(services)
+    operation = {
+        "operation": "query_measurements",
+        "stream": "knmi_observations",
+        "metric": "wind_gust_kmh",
+        "limit": 3,
+        "save_as": "wind",
+    }
+    first = await executor.execute(
+        "data_batch",
+        ToolRequest(
+            request_id="cached-query-first",
+            session_policy_version=executor.policy()["version"],
+            payload={"operations": [operation]},
+        ),
+    )
+    assert first.ok and isinstance(first.result, dict)
+
+    def unexpected_prepare(*_args, **_kwargs):
+        raise AssertionError("cached query should not be prepared again")
+
+    monkeypatch.setattr(executor.query, "prepare", unexpected_prepare)
+    second = await executor.execute(
+        "data_batch",
+        ToolRequest(
+            request_id="cached-query-second",
+            session_policy_version=executor.policy()["version"],
+            payload={"operations": [operation]},
+        ),
+    )
+    assert second.ok and isinstance(second.result, dict)
+    assert second.result["aliases"]["wind"] == first.result["aliases"]["wind"]
+
+
+async def test_data_batch_loads_current_bundle_once_for_parallel_queries(services, monkeypatch):
+    executor = await _executor(services)
+    original_rows_for_bundle = executor.query.rows_for_bundle
+    calls = 0
+
+    def counted_rows_for_bundle(bundle_version):
+        nonlocal calls
+        calls += 1
+        return original_rows_for_bundle(bundle_version)
+
+    monkeypatch.setattr(executor.query, "rows_for_bundle", counted_rows_for_bundle)
+    response = await executor.execute(
+        "data_batch",
+        ToolRequest(
+            request_id="shared-bundle-rows",
+            session_policy_version=executor.policy()["version"],
+            payload={
+                "operations": [
+                    {
+                        "operation": "query_events",
+                        "stream": "p2000",
+                        "limit": 4,
+                        "save_as": "incidents",
+                    },
+                    {
+                        "operation": "query_measurements",
+                        "stream": "knmi_observations",
+                        "metric": "wind_gust_kmh",
+                        "limit": 4,
+                        "save_as": "wind",
+                    },
+                ]
+            },
+        ),
+    )
+    assert response.ok
+    assert calls == 1
 
 
 async def test_data_batch_resolves_dependent_aliases_after_parallel_queries(services):

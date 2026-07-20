@@ -147,6 +147,15 @@ class _Geocoding:
         }
 
 
+class _CountingGeocoding(_Geocoding):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def resolve(self, text: str) -> dict:
+        self.calls += 1
+        return await super().resolve(text)
+
+
 class _Places:
     async def nearby(self, **_kwargs) -> dict:
         return {
@@ -248,6 +257,28 @@ async def test_nearby_places_resolves_named_origin_and_returns_distance(services
     assert map_rows[0]["is_origin"] is True
     assert map_rows[0]["distance_m"] == 0
     assert map_rows[0]["title"] == "Utrecht, Nederland"
+
+
+async def test_nearby_places_reuses_active_location_resolution(services) -> None:
+    executor = await _executor(services)
+    geocoding = _CountingGeocoding()
+    executor.geocoding = geocoding  # type: ignore[assignment]
+    executor.places = _Places()  # type: ignore[assignment]
+    for index in range(2):
+        response = await executor.execute(
+            "nearby_places",
+            ToolRequest(
+                request_id=f"nearby-cached-origin-{index}",
+                session_policy_version=executor.policy()["version"],
+                payload={
+                    "origin_text": "IJmuiden",
+                    "included_types": ["hospital"],
+                    "radius_m": 5000,
+                },
+            ),
+        )
+        assert response.ok
+    assert geocoding.calls == 1
 
 
 async def test_nearby_places_uses_supported_subset_and_reports_ignored_types(services) -> None:
