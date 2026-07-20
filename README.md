@@ -146,6 +146,7 @@ Panelen zijn eveneens begrensd: feeds, events, KPI's, ranglijsten, tijdreeksen, 
 ## Inspiratie en credits
 
 - [Reson8](https://console.reson8.dev/custom-models), een interessant Nederlands voicebedrijf waarvan ik de custom-modelroute graag verder wil testen.
+- [Murmel](https://the-ai-factory.com/insights/murmel-dutch-speech-to-text), een interessante Nederlandse speech-to-textontwikkeling van The AI Factory om in de gaten te houden.
 - [Hex](https://hex.tech/), dat analytics en dashboarding de afgelopen tijd veel productiever en leuker heeft gemaakt. Ik ben benieuwd wat hun time-to-dashboard zou worden met modellen zoals Gemma 4 op Cerebras.
 - [Thinking Machines: Interaction Models](https://thinkingmachines.ai/blog/interaction-models/), een sterk perspectief op interfaces die zich rond gebruikersintentie vormen.
 - [World Monitor](https://www.worldmonitor.app/dashboard), een indrukwekkend openbaar informatieproject dat qua schaal en afwerking veel verder gaat dan deze demo.

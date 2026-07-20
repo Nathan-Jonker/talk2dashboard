@@ -140,6 +140,7 @@ Voice is not merely a chat layer on top of a dashboard. With fast models and sma
 ## Inspiration and credits
 
 - [Reson8](https://console.reson8.dev/custom-models), an interesting Dutch voice company whose custom-model route I would like to explore.
+- [Murmel](https://the-ai-factory.com/insights/murmel-dutch-speech-to-text), an interesting Dutch speech-to-text development by The AI Factory to keep an eye on.
 - [Hex](https://hex.tech/), which has made analytics and dashboarding considerably more productive and enjoyable. I am curious what its time-to-dashboard could become with models such as Gemma 4 on Cerebras.
 - [Thinking Machines: Interaction Models](https://thinkingmachines.ai/blog/interaction-models/), a strong perspective on interfaces that form around user intent.
 - [World Monitor](https://www.worldmonitor.app/dashboard), an impressive public-information project far beyond this demo in scale and polish.
