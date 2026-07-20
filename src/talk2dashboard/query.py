@@ -131,6 +131,28 @@ class QueryEngine:
             observations[key] = payload
         return list(observations.values())
 
+    def _row_for_source_ref(self, source_ref: str) -> tuple[dict[str, Any], str]:
+        if ":" not in source_ref:
+            raise ValueError("source_ref must use stream_id:record_id")
+        stream_id, record_id = source_ref.split(":", 1)
+        # Some adapters persist record_id as the complete source_ref while
+        # older fixtures store only the provider-local suffix. Accept both
+        # without changing canonical source data.
+        candidate_record_ids = {source_ref, record_id}
+        with self.database.session() as session:
+            record = session.scalars(
+                select(NormalizedRecordRow)
+                .where(
+                    NormalizedRecordRow.stream_id == stream_id,
+                    NormalizedRecordRow.record_id.in_(candidate_record_ids),
+                )
+                .order_by(NormalizedRecordRow.observed_at.desc())
+                .limit(1)
+            ).first()
+        if record is None:
+            raise KeyError(f"Unknown source_ref: {source_ref}")
+        return json.loads(record.payload_json), record.record_kind
+
     def prepare(
         self,
         query_spec: dict[str, Any],
@@ -146,7 +168,35 @@ class QueryEngine:
         """
         normalized = self._normalize_query(query_spec)
         input_handle_id = normalized.get("input_handle")
-        if input_handle_id:
+        if normalized.get("operation") == "query_source_ref":
+            source_row, record_kind = self._row_for_source_ref(str(normalized["source_ref"]))
+            normalized["record_kind"] = record_kind
+            resolution_id = normalized.get("origin_resolution_id")
+            if resolution_id:
+                if origin_location is None:
+                    try:
+                        resolution = self.locations.get(str(resolution_id))
+                    except KeyError as exc:
+                        raise ValueError(
+                            "query_source_ref requires an active location resolution"
+                        ) from exc
+                    origin_location = {
+                        "latitude": resolution.latitude,
+                        "longitude": resolution.longitude,
+                        "label": resolution.display_label,
+                    }
+                source_row = {
+                    **source_row,
+                    "location": {
+                        "latitude": float(origin_location["latitude"]),
+                        "longitude": float(origin_location["longitude"]),
+                        "label": str(origin_location.get("label") or "Afgeleide locatie"),
+                    },
+                    "location_source": "geocoded",
+                }
+            bundle_version = bundle_version or self.latest_bundle()
+            source_rows = [source_row]
+        elif input_handle_id:
             input_handle, source_rows = self.load(str(input_handle_id))
             bundle_version = bundle_version or input_handle.source_bundle_version
         else:
@@ -200,7 +250,13 @@ class QueryEngine:
 
     def execute(self, query_spec: dict[str, Any], bundle_version: str | None = None) -> DataHandle:
         kind, normalized, rows, resolved_bundle = self.prepare(query_spec, bundle_version)
-        return self.create_handle(kind, normalized, rows, resolved_bundle)
+        ttl_seconds = (
+            900
+            if normalized.get("operation") == "query_source_ref"
+            and normalized.get("origin_resolution_id")
+            else None
+        )
+        return self.create_handle(kind, normalized, rows, resolved_bundle, ttl_seconds)
 
     def create_handle(
         self,
@@ -313,6 +369,7 @@ class QueryEngine:
     def _normalize_query(self, query: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "operation",
+            "source_ref",
             "record_kind",
             "stream",
             "streams",
@@ -347,6 +404,12 @@ class QueryEngine:
             raise ValueError(f"Unsupported query fields: {', '.join(sorted(unknown))}")
         normalized = {key: value for key, value in query.items() if value not in (None, "", [])}
         normalized.setdefault("operation", "query")
+        if normalized["operation"] == "query_source_ref":
+            source_ref = str(normalized.get("source_ref") or "")
+            if ":" not in source_ref:
+                raise ValueError("query_source_ref requires source_ref=stream_id:record_id")
+            if normalized.get("stream") or normalized.get("streams"):
+                raise ValueError("query_source_ref accepts source_ref instead of stream(s)")
         aliases = {
             "query_events": ("query", "event"),
             "query_measurements": ("query", "measurement"),

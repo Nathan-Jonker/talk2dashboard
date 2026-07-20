@@ -67,7 +67,7 @@ describe("voice dock contract", () => {
     expect(operatorSelectionMeta(selection!)).toBe("P2000 · Record evt-42");
   });
 
-  it("routes P2000 records without source coordinates through geocoding", () => {
+  it("routes records without source coordinates through geocoding", () => {
     const selection = normalizeOperatorSelection({
       source_ref: "p2000:evt-43",
       title: "Wateroverlast Lupinestraat Dedemsvaart",
@@ -78,7 +78,18 @@ describe("voice dock contract", () => {
     expect(context).toContain("origin_text");
     expect(context).toContain("query_nearby");
     expect(context).toContain("ongefilterde landelijke query");
-    expect(context).toContain("gegeocodeerd");
+  });
+
+  it("uses the same missing-coordinate route for another source", () => {
+    const selection = normalizeOperatorSelection({
+      source_ref: "ns_disruptions:evt-7",
+      title: "Storing rond Utrecht Centraal",
+      description: "Treinverkeer rond station Utrecht Centraal is beperkt"
+    });
+    const context = operatorContextMessage(selection!);
+    expect(context).toContain("origin_text");
+    expect(context).toContain("query_nearby");
+    expect(context).not.toContain("P2000-bronrecord");
   });
 
   it("uses a resolved P2000 focus directly for nearby data and facilities", () => {
@@ -93,7 +104,9 @@ describe("voice dock contract", () => {
     });
     const context = operatorContextMessage(selection!);
     expect(context).toContain("origin_resolution_id=locres_bedum");
-    expect(context).toContain("Houd het geselecteerde bronrecord zelf als focusmarker zichtbaar");
+    expect(context).toContain("query_source_ref");
+    expect(context).toContain("source_ref=p2000:evt-44");
+    expect(context).toContain("Zoek het record niet opnieuw in de actuele feed");
     expect(context).toContain("nearby_places");
   });
 

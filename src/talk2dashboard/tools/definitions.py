@@ -67,6 +67,7 @@ def _data_operation_schema() -> dict[str, Any]:
             "operation": {
                 "type": "string",
                 "enum": [
+                    "query_source_ref",
                     "query_events",
                     "query_measurements",
                     "query_nearby",
@@ -84,6 +85,15 @@ def _data_operation_schema() -> dict[str, Any]:
                 "type": "string",
                 "enum": list(STREAM_IDS),
                 "description": "Een bekende databron.",
+            },
+            "source_ref": {
+                "type": "string",
+                "description": (
+                    "Exact geselecteerd bronrecord uit iedere stream, bijvoorbeeld "
+                    "p2000:record-id of ndw_incidents:record-id. "
+                    "Gebruik query_source_ref zodat een record ook na rotatie uit de actuele feed "
+                    "beschikbaar blijft."
+                ),
             },
             "streams": {
                 "type": "array",

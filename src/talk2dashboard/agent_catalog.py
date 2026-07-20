@@ -93,12 +93,12 @@ STREAM_ROUTING_CATALOG = """Vaste dataroutering (geen inspectie nodig):
 Metingen hebben metric, value, unit, observed_at, location en source_ref. Events hebben category, title, description, severity, status, observed_at, location, attributes en source_ref."""
 
 DIRECT_ACTION_RECIPES = """Directe recepten:
-- Operatorselectie: de browser kan stille context sturen met source_ref, stream, record_id en label. Koppel woorden als 'dit', 'hier', 'deze melding', 'dit meetpunt' en 'deze plek' direct aan dat exacte record. Query het origin-record op stream+record_id en ga zonder inspect_workspace door naar de gevraagde data_batch-operaties. Gebruik nooit een oudere selectie wanneer de context meldt dat deze is gewist.
+- Operatorselectie: de browser kan stille context sturen met source_ref, stream, record_id, label en eventueel een tijdelijke origin_resolution_id. Koppel woorden als 'dit', 'hier', 'deze melding', 'dit meetpunt' en 'deze plek' direct aan dat exacte record. Gebruik query_source_ref met source_ref en, indien aanwezig, origin_resolution_id. Bind de geretourneerde handle direct als focuslaag aan een kaart; zoek het record niet opnieuw in de roterende actuele feed. Ga zonder inspect_workspace door. Gebruik nooit een oudere selectie wanneer de context meldt dat deze is gewist.
 - Ranglijst: data_batch query_measurements met bekende stream+metric, sort=value, order=desc, limit; daarna ranking-panel met label=location.label en y=value.
 - Trend: query_measurements met stream+metric+window (maximaal P2D), sort=observed_at en order=asc; gebruik daarna alleen timeseries wanneer panel_compatibility dit toestaat. Twee globale timestamps zijn niet genoeg: minstens een station-metriekcombinatie moet twee meetmomenten bevatten. Filter bij meer dan acht reeksen eerst op locatie. Kies anders een ranglijst, kaart of geaggregeerde KPI en benoem hoeveel lokale historie beschikbaar is.
 - Meldingenlijst: query_events met streams/window/filter; daarna incident_timeline of event_table. Gebruik bindings=[...] wanneer onafhankelijke eventhandles samen in een feed horen.
 - Kaart: query_events of query_measurements met locatie; gebruik standaard map_3d_google met latitude=location.latitude en longitude=location.longitude. Combineer meerdere geo-handles in een kaart via bindings=[...], zodat iedere bron een eigen kleur, legenda en herkomst houdt. Gebruik map_2d alleen als de gebruiker expliciet een platte kaart vraagt of Google 3D niet beschikbaar is.
-- Bronnen rond een bronrecord: woorden als 'binnen vijfentwintig kilometer', 'in de buurt van deze melding/meting' of 'rond dit bronrecord' vereisen query_nearby voor IEDERE doelbron. Heeft het origin-record coordinaten, query het eerst met save_as=origin en gebruik origin_handle=@origin. Ontbreken coordinaten maar bevat de geselecteerde P2000-melding een adres of plaats, gebruik dan direct origin_text met titel plus omschrijving in query_nearby. Voorbeeld: {operation:query_nearby,stream:rws_water,origin_text:'Lupinestraat Dedemsvaart',radius_m:25000,save_as:water_nearby}. Gebruik nooit een gewone query_events/query_measurements als fallback: die is landelijk en dus niet ruimtelijk gefilterd. Dit werkt tussen P2000, NDW, NS, KNMI, RWS-water en Luchtmeetnet. nearby_places is uitsluitend voor voorzieningen. Ieder doelrecord moet distance_m bevatten en binnen radius_m vallen.
+- Bronnen rond een bronrecord: woorden als 'binnen vijfentwintig kilometer', 'in de buurt van deze melding/meting' of 'rond dit bronrecord' vereisen query_nearby voor IEDERE doelbron. Heeft het origin-record coordinaten, query het eerst met save_as=origin en gebruik origin_handle=@origin. Ontbreken coordinaten maar bevat het geselecteerde record een adres, station of plaats, gebruik dan direct origin_text met titel plus omschrijving in query_nearby. Voorbeeld: {operation:query_nearby,stream:rws_water,origin_text:'Lupinestraat Dedemsvaart',radius_m:25000,save_as:water_nearby}. Gebruik nooit een gewone query_events/query_measurements als fallback: die is landelijk en dus niet ruimtelijk gefilterd. Dit werkt tussen P2000, NDW, NS, KNMI, RWS-water, Luchtmeetnet en andere geselecteerde records met een bruikbare locatie. nearby_places is uitsluitend voor voorzieningen. Ieder doelrecord moet distance_m bevatten en binnen radius_m vallen.
 - Telling/vergelijking: aggregate met group_by stream_id/category/metric en fn count/mean/max/p95; gebruik kpi alleen voor één waarde per binding, comparison voor samen minstens twee waarden en ranking voor vergelijkbare numerieke groepen. Bind meerdere bronnen met bindings=[...] in hetzelfde coherente panel.
 - Kaartgeschiktheid: gebruik map_2d of map_3d_google alleen wanneer panel_compatibility een kaart aanbeveelt. Records zonder coördinaten blijven beschikbaar als feed maar mogen niet tot een lege kaart leiden.
 - Onderbouwing: gebruik preview, freshness en source_status uit hetzelfde data_batch-resultaat; inspecteer daarvoor niet apart.
@@ -163,7 +163,13 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
                 "name": "operations",
                 "type": "lijst",
                 "required": True,
-                "description": "query_events, query_measurements, query_nearby, aggregate, baseline, correlate, get_incident, diff, answer_slice of resolve_location",
+                "description": "query_source_ref, query_events, query_measurements, query_nearby, aggregate, baseline, correlate, get_incident, diff, answer_slice of resolve_location",
+            },
+            {
+                "name": "source_ref",
+                "type": "exact bronrecord-ID",
+                "required": False,
+                "description": "Gebruik met query_source_ref voor het geselecteerde record, ook nadat dit uit de actuele feed is geroteerd",
             },
             {
                 "name": "stream / streams",
@@ -222,6 +228,7 @@ TOOL_CAPABILITIES: dict[str, dict[str, object]] = {
             "Voor meetseries: distinct_timestamps, series_with_history, supports_timeseries en aanbevolen paneltypen",
             "Structured errors bij onvoldoende baseline of series",
             "query_nearby voegt distance_m, distance_origin_record_id en distance_origin_label toe",
+            "query_source_ref materialiseert exact een geselecteerd persistent bronrecord voor kaart- of evidencebinding",
         ],
         "constraints": [
             "Read-only: bronrecords worden nooit gewijzigd",

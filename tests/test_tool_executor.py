@@ -94,6 +94,71 @@ async def test_one_data_batch_and_dashboard_batch_are_sufficient(services):
     assert dashboard.result["dashboard"]["panels"][-1]["panel_id"] == "agent-incidents"
 
 
+async def test_selected_source_ref_can_be_bound_directly_to_3d_map(services):
+    executor = await _executor(services)
+    policy = executor.policy()
+    data = await executor.execute(
+        "data_batch",
+        ToolRequest(
+            request_id="selected-source-map-data",
+            session_policy_version=policy["version"],
+            payload={
+                "operations": [
+                    {
+                        "operation": "query_source_ref",
+                        "source_ref": "p2000:fixture-p2000-001",
+                        "save_as": "focus",
+                    }
+                ]
+            },
+        ),
+    )
+
+    assert data.ok and isinstance(data.result, dict)
+    focus = data.result["results"][0]
+    assert focus["row_count"] == 1
+    assert focus["preview"][0]["record_id"] == "fixture-p2000-001"
+    assert "map_3d_google" in focus["panel_compatibility"]["recommended_panels"]
+
+    dashboard = await executor.execute(
+        "dashboard_batch",
+        ToolRequest(
+            request_id="selected-source-map-dashboard",
+            session_policy_version=policy["version"],
+            dashboard_version=1,
+            payload={
+                "expected_version": 1,
+                "reason": "zet geselecteerde melding op de 3D-kaart",
+                "operations": [
+                    {
+                        "op": "upsert_panel",
+                        "panel_id": "selected-p2000-map",
+                        "panel_type": "map_3d_google",
+                        "title": "Geselecteerde P2000-melding",
+                        "seed_handle_id": data.result["aliases"]["focus"],
+                        "binding": {
+                            "seed_handle_id": data.result["aliases"]["focus"],
+                            "field_bindings": {
+                                "label": "title",
+                                "latitude": "location.latitude",
+                                "longitude": "location.longitude",
+                            },
+                        },
+                    }
+                ],
+            },
+        ),
+    )
+
+    assert dashboard.ok and isinstance(dashboard.result, dict)
+    panel = next(
+        item
+        for item in dashboard.result["dashboard"]["panels"]
+        if item["panel_id"] == "selected-p2000-map"
+    )
+    assert panel["binding"]["query_spec"]["source_ref"] == "p2000:fixture-p2000-001"
+
+
 async def test_dashboard_batch_accepts_multiple_map_source_bindings(services):
     executor = await _executor(services)
     policy = executor.policy()

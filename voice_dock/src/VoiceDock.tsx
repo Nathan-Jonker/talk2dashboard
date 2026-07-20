@@ -248,8 +248,8 @@ export function VoiceDock() {
     const selectContext = (event: Event) => {
       const selection = normalizeOperatorSelection((event as CustomEvent<unknown>).detail);
       if (!selection) return;
-      const needsResolution = selection.streamId === "p2000"
-        && (selection.latitude === undefined || selection.longitude === undefined);
+      const needsResolution = selection.latitude === undefined
+        || selection.longitude === undefined;
       const pendingSelection = needsResolution
         ? { ...selection, locationPending: true }
         : selection;
@@ -652,9 +652,7 @@ export function VoiceDock() {
               ? "Kaartlocatie bepalen…"
               : operatorSelection.latitude !== undefined && operatorSelection.longitude !== undefined
               ? `Kaartfocus · ${operatorSelection.locationLabel || `${operatorSelection.latitude.toFixed(4)}, ${operatorSelection.longitude.toFixed(4)}`}${operatorSelection.locationSource === "geocoded" ? " · gegeocodeerd" : ""}`
-              : operatorSelection.streamId === "p2000"
-                ? "Kaartlocatie kon niet uit de melding worden bepaald"
-                : "Geen kaartlocatie in dit bronrecord"}
+              : "Kaartlocatie kon niet uit dit bronrecord worden bepaald"}
           </span>
         </span>
         <button type="button" onClick={clearOperatorSelection} aria-label="Gespreksfocus wissen" title="Focus wissen"><X size={16} /></button>

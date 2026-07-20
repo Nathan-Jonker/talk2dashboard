@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from talk2dashboard.domain import EventRecord, MeasurementRecord, SourceRef, TrustTier
 from talk2dashboard.errors import InsufficientBaselineError
+from talk2dashboard.locations import EphemeralLocationStore
 from talk2dashboard.sources.base import AdapterResult
-from talk2dashboard.storage.models import DataHandleRow
+from talk2dashboard.storage.models import DataHandleRow, NormalizedRecordRow, SourceBundleRow
 
 
 async def test_fixture_creates_immutable_query_handles(services):
@@ -28,6 +31,87 @@ async def test_fixture_creates_immutable_query_handles(services):
     assert health["p2000"].status == "fixture"
     assert health["p2000"].provider == "recorded fixture"
     assert health["ns_disruptions"].status == "disabled"
+
+
+async def test_query_source_ref_survives_rotation_from_latest_bundle(services):
+    _settings, database, sources, query, _dashboard = services
+    await sources.initialize_fixture()
+    with database.session() as session:
+        session.add(
+            SourceBundleRow(
+                bundle_version="bundle_after_rotation",
+                created_at=(datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+                snapshot_ids_json="[]",
+                health_json="{}",
+            )
+        )
+
+    handle = query.execute(
+        {"operation": "query_source_ref", "source_ref": "p2000:fixture-p2000-001"}
+    )
+
+    assert handle.kind == "events"
+    assert handle.row_count == 1
+    assert handle.preview[0]["record_id"] == "fixture-p2000-001"
+    assert handle.source_bundle_version == "bundle_after_rotation"
+
+
+async def test_query_source_ref_accepts_provider_prefixed_record_id(services):
+    _settings, database, sources, query, _dashboard = services
+    await sources.initialize_fixture()
+    with database.session() as session:
+        record = session.scalars(
+            select(NormalizedRecordRow).where(
+                NormalizedRecordRow.stream_id == "p2000",
+                NormalizedRecordRow.record_id == "fixture-p2000-001",
+            )
+        ).first()
+        assert record is not None
+        payload = json.loads(record.payload_json)
+        record.record_id = "p2000:fixture-p2000-001"
+        payload["record_id"] = record.record_id
+        record.payload_json = json.dumps(payload)
+
+    handle = query.execute(
+        {"operation": "query_source_ref", "source_ref": "p2000:fixture-p2000-001"}
+    )
+
+    assert handle.row_count == 1
+    assert handle.preview[0]["record_id"] == "p2000:fixture-p2000-001"
+
+
+async def test_query_source_ref_can_add_ephemeral_map_location_without_mutating_source(services):
+    _settings, database, sources, query, _dashboard = services
+    await sources.initialize_fixture()
+    original = query.execute(
+        {"operation": "query_source_ref", "source_ref": "p2000:fixture-p2000-001"}
+    )
+    resolution = EphemeralLocationStore(database).put(
+        "Raadhuisplein, Wervershoof",
+        {
+            "place_id": "fixture-wervershoof",
+            "display_label": "Raadhuisplein, Wervershoof, Nederland",
+            "location": {"lat": 52.728, "lng": 5.165},
+        },
+    )
+
+    located = query.execute(
+        {
+            "operation": "query_source_ref",
+            "source_ref": "p2000:fixture-p2000-001",
+            "origin_resolution_id": resolution.resolution_id,
+        }
+    )
+
+    assert located.expires_at is not None
+    assert located.preview[0]["record_id"] == "fixture-p2000-001"
+    assert located.preview[0]["location"] == {
+        "latitude": 52.728,
+        "longitude": 5.165,
+        "label": "Raadhuisplein, Wervershoof, Nederland",
+    }
+    assert located.preview[0]["location_source"] == "geocoded"
+    assert original.preview[0]["location"] != located.preview[0]["location"]
 
 
 async def test_concurrent_identical_queries_reuse_one_handle(services):
@@ -436,9 +520,7 @@ async def test_explicit_window_keeps_events_that_left_the_latest_snapshot(servic
         ]
     )
 
-    current = query.execute(
-        {"operation": "query_events", "stream": "ndw_incidents"}, latest_bundle
-    )
+    current = query.execute({"operation": "query_events", "stream": "ndw_incidents"}, latest_bundle)
     history = query.execute(
         {
             "operation": "query_events",

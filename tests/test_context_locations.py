@@ -61,3 +61,37 @@ async def test_missing_p2000_coordinates_are_geocoded_once_and_reused(services) 
     assert first["resolution_id"] == second["resolution_id"]
     geocoding.resolve.assert_awaited_once()
     assert geocoding.resolve.await_args.args == ("Kuifeend in Bedum, Nederland",)
+
+
+@pytest.mark.asyncio
+async def test_missing_coordinates_from_another_source_are_geocoded(services) -> None:
+    _settings, database, _sources, _query, _dashboard = services
+    geocoding = AsyncMock()
+    geocoding.resolve.return_value = {
+        "matches": [
+            {
+                "place_id": "utrecht-centraal",
+                "display_label": "Utrecht Centraal, Utrecht",
+                "location": {"lat": 52.089, "lng": 5.11},
+            }
+        ]
+    }
+    service = ContextLocationService(
+        FakeEvidence(
+            {
+                "title": "Storing rond Utrecht Centraal",
+                "description": "Beperkt treinverkeer rond station Utrecht Centraal",
+                "location": None,
+            }
+        ),  # type: ignore[arg-type]
+        geocoding,
+        EphemeralLocationStore(database),
+    )
+
+    result = await service.resolve("ns_disruptions:evt-7")
+
+    assert result["location_source"] == "geocoded"
+    assert result["label"] == "Utrecht Centraal, Utrecht"
+    geocoding.resolve.assert_awaited_once_with(
+        "Storing rond Utrecht Centraal Beperkt treinverkeer rond station Utrecht Centraal"
+    )
