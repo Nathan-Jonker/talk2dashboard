@@ -132,7 +132,7 @@ Google Maps 2D/3D, Geocoding en Places leveren alleen visualisatie en tijdelijke
 
 De agent heeft zes brede tools:
 
-| Tool | Wat hij mag doen |
+| Tool | Wat de agent mag doen |
 | --- | --- |
 | `inspect_workspace` | Bronnen, status, schema's, paneltypen en dashboardstate opvragen wanneer dat echt nodig is. |
 | `data_batch` | Meerdere read-only queries, aggregaties, baselines, correlaties en radiusqueries in één call uitvoeren. |

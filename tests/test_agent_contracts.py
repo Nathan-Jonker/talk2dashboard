@@ -180,6 +180,17 @@ def test_information_drawer_remains_clickable_inside_fixed_voice_root() -> None:
     assert 'dispatchEvent(new Event("resize"))' in drawer_source
 
 
+def test_information_drawer_refreshes_source_health_while_open() -> None:
+    drawer_source = (PROJECT_ROOT / "voice_dock/src/InfoDrawer.tsx").read_text()
+    eventstream = (PROJECT_ROOT / "src/talk2dashboard/renderer/assets/eventstream.js").read_text()
+
+    assert 'jsonRequest<Stream[]>("/api/streams")' in drawer_source
+    assert "window.setInterval(refreshStreams, 30_000)" in drawer_source
+    assert 'window.addEventListener("talk2d:source-bundle", refreshStreams)' in drawer_source
+    assert 'window.removeEventListener("talk2d:source-bundle", refreshStreams)' in drawer_source
+    assert 'new CustomEvent("talk2d:source-bundle"' in eventstream
+
+
 def test_first_render_requests_rate_limited_startup_composition() -> None:
     eventstream = (PROJECT_ROOT / "src/talk2dashboard/renderer/assets/eventstream.js").read_text()
     api_source = (PROJECT_ROOT / "src/talk2dashboard/api/app.py").read_text()
@@ -200,6 +211,18 @@ def test_first_render_requests_rate_limited_startup_composition() -> None:
     assert "window.talk2dAwaitDashboardRender = awaitDashboardRender" in eventstream
     assert "return awaitDashboardRender(result.dashboard_version, 20000)" in eventstream
     assert "setCerebrasGeneration(requestId, false" in eventstream
+
+
+def test_dashboard_tool_result_triggers_immediate_deduplicated_render() -> None:
+    eventstream = (PROJECT_ROOT / "src/talk2dashboard/renderer/assets/eventstream.js").read_text()
+    client_api = (PROJECT_ROOT / "voice_dock/src/api.ts").read_text()
+
+    assert 'new CustomEvent("talk2d:dashboard-committed"' in client_api
+    assert 'window.addEventListener("talk2d:dashboard-committed"' in eventstream
+    assert "const dashboardRenderRequests = new Map()" in eventstream
+    assert "if (dashboardRenderRequests.has(version))" in eventstream
+    assert 'set_props("dashboard-event-store"' in eventstream
+    assert 'event_type: "dashboard_render_dispatched"' in eventstream
 
 
 def test_operator_focus_survives_dashboard_rerenders() -> None:

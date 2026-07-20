@@ -31,8 +31,9 @@ async def test_data_refresh_does_not_create_dashboard_version(services):
 
 async def test_dashboard_materializes_unique_bindings_in_parallel(services, monkeypatch) -> None:
     _settings, _database, sources, query, dashboard = services
+    first_bundle = await sources.initialize_fixture()
+    spec = dashboard.ensure_default(first_bundle)
     bundle = await sources.initialize_fixture()
-    spec = dashboard.ensure_default(bundle)
     original_execute = query.execute
     lock = threading.Lock()
     active = 0
@@ -66,8 +67,9 @@ async def test_dashboard_materializes_unique_bindings_in_parallel(services, monk
 
 async def test_materialize_uses_previous_handles_during_sqlite_write_lock(services, monkeypatch):
     _settings, _database, sources, query, dashboard = services
+    first_bundle = await sources.initialize_fixture()
+    initial = dashboard.ensure_default(first_bundle)
     bundle = await sources.initialize_fixture()
-    initial = dashboard.ensure_default(bundle)
 
     def locked_execute(*_args, **_kwargs):
         raise OperationalError("INSERT data_handles", {}, Exception("database is locked"))
@@ -79,6 +81,21 @@ async def test_materialize_uses_previous_handles_during_sqlite_write_lock(servic
     assert set(handles) == {panel.panel_id for panel in bound_panels}
     assert all(item.get("handle_id") for item in handles.values())
     assert all("vorige handle" in item.get("warning", "") for item in handles.values())
+
+
+async def test_materialize_reuses_handles_from_the_same_source_bundle(services, monkeypatch):
+    _settings, _database, sources, query, dashboard = services
+    bundle = await sources.initialize_fixture()
+    spec = dashboard.ensure_default(bundle)
+
+    def unexpected_execute(*_args, **_kwargs):
+        raise AssertionError("unchanged bindings should reuse their bundle handle")
+
+    monkeypatch.setattr(query, "execute", unexpected_execute)
+    handles = dashboard.materialize(spec, bundle)
+
+    assert {"incident-map", "incident-timeline", "wind-trend"} <= set(handles)
+    assert all(item["source_bundle_version"] == bundle for item in handles.values())
 
 
 async def test_materialize_reuses_external_places_snapshot_without_query_execution(

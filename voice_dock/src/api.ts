@@ -125,7 +125,15 @@ export async function invokeTool(name: ToolName, payload: Record<string, unknown
     return JSON.stringify(failure);
   }
   postMetric("tool_execution_end", { name, ok: true });
-  if (name === "dashboard_batch") postMetric("dashboard_commit_accepted");
+  if (name === "dashboard_batch") {
+    postMetric("dashboard_commit_accepted");
+    const dashboardVersion = Number(result.dashboard_version);
+    if (Number.isInteger(dashboardVersion) && dashboardVersion > 0) {
+      window.dispatchEvent(new CustomEvent("talk2d:dashboard-committed", {
+        detail: { dashboard_version: dashboardVersion }
+      }));
+    }
+  }
   window.dispatchEvent(new CustomEvent("talk2d:tool-result", { detail: { name, result } }));
   return JSON.stringify(result);
 }

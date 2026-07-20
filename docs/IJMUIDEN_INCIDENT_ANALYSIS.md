@@ -15,7 +15,7 @@ Dat is nadrukkelijk geen bewijs dat het incident daarmee was voorkomen. De regel
 ## Publieke bronnen en reproduceerbaarheid
 
 - [Rijkswaterstaat Waterinfo](https://waterinfo.rws.nl/) voor het bekijken en exporteren van meetreeksen;
-- [Rijkswaterstaat Waterdata](https://www.rijkswaterstaat.nl/water/waterdata) voor uitleg en toegang tot actuele en historische waterdata; historische waterkwantiteitsdata staat in Waterinfo onder het tabblad **Expert**;
+- [Rijkswaterstaat Waterdata](https://www.rijkswaterstaat.nl/water/waterdata) voor uitleg en toegang tot actuele en historische waterdata; historische waterkwantiteitsdata kun je in Waterinfo via het tabblad **Expert** opvragen en downloaden;
 - [officiële evaluatie van het incident](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) voor de operationele tijdlijn en onderzoeksrapporten.
 
 De incidentreconstructie gebruikte een Waterinfo-export over 1 tot en met 5 november 2023. De false-positivecontrole gebruikte bewust een langere, afzonderlijke RWS-reeks van 1 november 2022 tot en met 3 november 2023 en telde alleen dagen vóór het incidentvenster. Daardoor betekent `0` in de tabel hieronder: **nul andere alarmdagen waarop exact die regel in deze baseline afging**. Het betekent niet dat de regel in alle seizoenen en toekomstige jaren gegarandeerd nul false positives heeft.

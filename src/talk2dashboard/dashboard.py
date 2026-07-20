@@ -363,6 +363,14 @@ class DashboardService:
 
     def _materialize_binding(self, binding: LogicalDataBinding, bundle_version: str | None) -> dict:
         try:
+            if bundle_version:
+                cached = self.query.latest_compatible(
+                    binding.query_hash,
+                    binding.schema_fingerprint,
+                    bundle_version=bundle_version,
+                )
+                if cached:
+                    return cached.model_dump(mode="json")
             handle = self.query.execute(binding.query_spec, bundle_version)
             compatible = handle.schema_fingerprint == binding.schema_fingerprint
             if handle.row_count and compatible:

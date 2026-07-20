@@ -11,7 +11,7 @@ This does not prove the incident would have been prevented. The rule was develop
 ## Public sources and reproducibility
 
 - [Rijkswaterstaat Waterinfo](https://waterinfo.rws.nl/) for viewing and exporting measurement series;
-- [Rijkswaterstaat Waterdata](https://www.rijkswaterstaat.nl/water/waterdata) for access to current and historical water data; historical water-quantity exports are available in Waterinfo's **Expert** tab;
+- [Rijkswaterstaat Waterdata](https://www.rijkswaterstaat.nl/water/waterdata) for access to current and historical water data; historical water-quantity data can be requested and downloaded through Waterinfo's **Expert** tab;
 - the [official incident evaluation](https://open.rijkswaterstaat.nl/@275817/evaluatie-incident-spuikokers-spui/) for the operational timeline and reports.
 
 The incident reconstruction used a Waterinfo export covering 1 through 5 November 2023. The false-positive check deliberately used a separate, longer RWS series from 1 November 2022 through 3 November 2023 and counted only days before the incident window. Therefore, `0` in the table below means **zero other alarm days on which that exact rule fired in this baseline**. It does not guarantee zero false positives across every season or future year.

@@ -120,20 +120,46 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
   useEffect(() => {
     if (!open || evidenceRef) return;
     void Promise.all([
-      jsonRequest<Stream[]>("/api/streams"),
       jsonRequest<DashboardVersion[]>("/api/dashboard/configs"),
       jsonRequest<WorkspacePolicy>("/api/policy"),
       jsonRequest<EvaluationTurn[]>("/api/evaluation/turns"),
       jsonRequest<AgentTool[]>("/api/agent-tools"),
       jsonRequest<SourceCapability[]>("/api/source-catalog")
-    ]).then(([sourceRows, versions, currentPolicy, recentTurns, agentTools, capabilities]) => {
-      setStreams(sourceRows);
+    ]).then(([versions, currentPolicy, recentTurns, agentTools, capabilities]) => {
       setHistory(versions);
       setPolicy(currentPolicy);
       setTurns(recentTurns);
       setTools(agentTools);
       setSourceCatalog(capabilities);
     });
+  }, [open, evidenceRef]);
+
+  useEffect(() => {
+    if (!open || evidenceRef) return;
+    let active = true;
+    let requestPending = false;
+    const refreshStreams = () => {
+      if (requestPending) return;
+      requestPending = true;
+      void jsonRequest<Stream[]>("/api/streams")
+        .then((sourceRows) => {
+          if (active) setStreams(sourceRows);
+        })
+        .catch(() => {
+          // Keep the last known source state visible during a transient API failure.
+        })
+        .finally(() => {
+          requestPending = false;
+        });
+    };
+    refreshStreams();
+    const interval = window.setInterval(refreshStreams, 30_000);
+    window.addEventListener("talk2d:source-bundle", refreshStreams);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("talk2d:source-bundle", refreshStreams);
+    };
   }, [open, evidenceRef]);
 
   useEffect(() => {

@@ -349,7 +349,10 @@ class QueryEngine:
         schema_fingerprint: str,
         *,
         exclude_bundle: str | None = None,
+        bundle_version: str | None = None,
     ) -> DataHandle | None:
+        if exclude_bundle and bundle_version:
+            raise ValueError("exclude_bundle and bundle_version are mutually exclusive")
         with self.database.session() as session:
             statement = (
                 select(DataHandleRow)
@@ -361,6 +364,10 @@ class QueryEngine:
             )
             if exclude_bundle:
                 statement = statement.where(DataHandleRow.source_bundle_version != exclude_bundle)
+            if bundle_version:
+                statement = statement.where(
+                    DataHandleRow.source_bundle_version == bundle_version
+                )
             row = session.scalars(statement).first()
             if row is None:
                 return None

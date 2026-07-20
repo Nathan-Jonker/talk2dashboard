@@ -4,6 +4,7 @@
   const operatorSelectionKey = "talk2d_operator_selection";
   let selectedContextRef = "";
   let focusRefreshScheduled = false;
+  const dashboardRenderRequests = new Map();
 
   function storedContextRef() {
     try {
@@ -152,16 +153,7 @@
   }
 
   function awaitDashboardRender(dashboardVersion, timeoutMs) {
-    if (window.dash_clientside && window.dash_clientside.set_props) {
-      window.dash_clientside.set_props("dashboard-event-store", {
-        data: {
-          type: "dashboard_updated",
-          dashboard_version: dashboardVersion,
-          requested_at: Date.now()
-        }
-      });
-    }
-    return acknowledge(dashboardVersion, null, "dashboard_redesign", timeoutMs || 20000);
+    return applyDashboardUpdate(dashboardVersion, "dashboard_redesign", timeoutMs || 20000);
   }
 
   window.talk2dAwaitDashboardRender = awaitDashboardRender;
@@ -201,14 +193,68 @@
       });
   }
 
+  function postRenderDispatchMetric(dashboardVersion, source) {
+    fetch("/api/metrics/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: window.localStorage.getItem("talk2d_conversation_id"),
+        turn_id: window.localStorage.getItem("talk2d_turn_id"),
+        event_type: "dashboard_render_dispatched",
+        monotonic_ms: performance.now(),
+        payload: { dashboard_version: dashboardVersion, source: source }
+      })
+    }).catch(function () {});
+  }
+
+  function applyDashboardUpdate(dashboardVersion, source, timeoutMs) {
+    const version = Number(dashboardVersion);
+    if (!Number.isInteger(version) || version <= 0) {
+      return Promise.reject(new Error("INVALID_DASHBOARD_VERSION"));
+    }
+    if (dashboardRenderRequests.has(version)) {
+      return dashboardRenderRequests.get(version);
+    }
+    if (!window.dash_clientside || !window.dash_clientside.set_props) {
+      return Promise.reject(new Error("DASH_CLIENT_NOT_READY"));
+    }
+    postRenderDispatchMetric(version, source);
+    window.dash_clientside.set_props("dashboard-event-store", {
+      data: {
+        type: "dashboard_updated",
+        dashboard_version: version,
+        requested_at: Date.now(),
+        source: source
+      }
+    });
+    const renderRequest = acknowledge(version, null, source, timeoutMs || 10000).catch(function (error) {
+      dashboardRenderRequests.delete(version);
+      throw error;
+    });
+    dashboardRenderRequests.set(version, renderRequest);
+    while (dashboardRenderRequests.size > 64) {
+      dashboardRenderRequests.delete(dashboardRenderRequests.keys().next().value);
+    }
+    return renderRequest;
+  }
+
+  window.talk2dApplyDashboardUpdate = applyDashboardUpdate;
+
   function connect() {
     const stream = new EventSource("/api/dashboard/events");
     stream.onmessage = function (event) {
       try {
         const data = JSON.parse(event.data);
         if (window.dash_clientside && window.dash_clientside.set_props) {
-          window.dash_clientside.set_props("dashboard-event-store", { data: data });
-          if (data.type === "dashboard_updated" || data.type === "source_bundle" || data.type === "dashboard_ready") {
+          if (data.type === "dashboard_updated") {
+            applyDashboardUpdate(data.dashboard_version, "dashboard_updated").catch(function () {});
+          } else {
+            window.dash_clientside.set_props("dashboard-event-store", { data: data });
+          }
+          if (data.type === "source_bundle" || data.type === "dashboard_ready") {
+            if (data.type === "source_bundle") {
+              window.dispatchEvent(new CustomEvent("talk2d:source-bundle", { detail: data }));
+            }
             acknowledgeEvent(
               data.dashboard_version || null,
               data.source_bundle_version || null,
@@ -239,6 +285,9 @@
   });
   window.addEventListener("talk2d:clear-context", function () {
     applyContextFocus("");
+  });
+  window.addEventListener("talk2d:dashboard-committed", function (event) {
+    applyDashboardUpdate(event.detail?.dashboard_version, "tool_result").catch(function () {});
   });
   new MutationObserver(scheduleContextFocus).observe(document.documentElement, {
     childList: true,
