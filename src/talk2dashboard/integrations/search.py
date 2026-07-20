@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 
 import feedparser  # pyright: ignore[reportMissingImports]
@@ -15,13 +16,84 @@ from talk2dashboard.storage.database import Database
 class BraveSearchClient:
     ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
     GOOGLE_NEWS_ENDPOINT = "https://news.google.com/rss/search"
+    CACHE_TTL_SECONDS = 120.0
 
     def __init__(self, settings: Settings, database: Database | None = None) -> None:
         self.settings = settings
         self.database = database
+        self._cache: dict[
+            tuple[str, int, int | None], tuple[float, list[dict]]
+        ] = {}
+        self._inflight: dict[
+            tuple[str, int, int | None], asyncio.Task[list[dict]]
+        ] = {}
+        self._cache_lock = asyncio.Lock()
 
     async def search(
         self, query: str, *, max_results: int = 5, recency_days: int | None = None
+    ) -> list[dict]:
+        normalized_query = " ".join(query.split())
+        normalized_recency = int(recency_days) if recency_days is not None else None
+        bounded_max_results = min(int(max_results), 5)
+        cache_key = (
+            normalized_query.casefold(),
+            bounded_max_results,
+            normalized_recency,
+        )
+
+        async with self._cache_lock:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                expires_at, results = cached
+                if expires_at > time.monotonic():
+                    return copy.deepcopy(results)
+                self._cache.pop(cache_key, None)
+
+            task = self._inflight.get(cache_key)
+            if task is None:
+                task = asyncio.create_task(
+                    self._search_uncached(
+                        normalized_query,
+                        max_results=bounded_max_results,
+                        recency_days=normalized_recency,
+                    )
+                )
+                self._inflight[cache_key] = task
+                task.add_done_callback(
+                    lambda completed, key=cache_key: self._schedule_finalize(key, completed)
+                )
+
+        results = await asyncio.shield(task)
+        return copy.deepcopy(results)
+
+    def _schedule_finalize(
+        self,
+        cache_key: tuple[str, int, int | None],
+        task: asyncio.Task[list[dict]],
+    ) -> None:
+        asyncio.get_running_loop().create_task(self._finalize_search(cache_key, task))
+
+    async def _finalize_search(
+        self,
+        cache_key: tuple[str, int, int | None],
+        task: asyncio.Task[list[dict]],
+    ) -> None:
+        try:
+            results = task.result()
+        except BaseException:
+            results = None
+
+        async with self._cache_lock:
+            if self._inflight.get(cache_key) is task:
+                self._inflight.pop(cache_key, None)
+            if results is not None:
+                self._cache[cache_key] = (
+                    time.monotonic() + self.CACHE_TTL_SECONDS,
+                    copy.deepcopy(results),
+                )
+
+    async def _search_uncached(
+        self, query: str, *, max_results: int, recency_days: int | None
     ) -> list[dict]:
         if not self.settings.brave_search_api_key:
             try:

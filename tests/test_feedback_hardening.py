@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -505,3 +506,63 @@ async def test_search_uses_google_news_if_duckduckgo_fails(
     assert route.called
     assert results[0]["title"] == "Nieuws uit Almere"
     assert results[0]["provider"] == "Google News RSS"
+
+
+async def test_search_caches_identical_requests_and_returns_defensive_copies(
+    services, monkeypatch
+) -> None:
+    settings, database, *_ = services
+    client = BraveSearchClient(settings, database)
+    call_count = 0
+
+    async def fake_search(
+        query: str, *, max_results: int, recency_days: int | None
+    ) -> list[dict]:
+        nonlocal call_count
+        call_count += 1
+        assert query == "laatste nieuws Almere"
+        assert max_results == 5
+        assert recency_days == 7
+        return [{"title": "Nieuws uit Almere", "provider": "test"}]
+
+    monkeypatch.setattr(client, "_search_uncached", fake_search)
+
+    first = await client.search("  laatste   nieuws Almere  ", recency_days=7)
+    await asyncio.sleep(0)
+    first[0]["title"] = "gemuteerd"
+    second = await client.search("laatste nieuws almere", recency_days=7)
+
+    assert call_count == 1
+    assert second[0]["title"] == "Nieuws uit Almere"
+
+
+async def test_search_coalesces_identical_inflight_requests(services, monkeypatch) -> None:
+    settings, database, *_ = services
+    client = BraveSearchClient(settings, database)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    call_count = 0
+
+    async def slow_search(
+        _query: str, *, max_results: int, recency_days: int | None
+    ) -> list[dict]:
+        nonlocal call_count
+        call_count += 1
+        assert max_results == 3
+        assert recency_days is None
+        started.set()
+        await release.wait()
+        return [{"title": "Gedeeld resultaat", "provider": "test"}]
+
+    monkeypatch.setattr(client, "_search_uncached", slow_search)
+
+    first = asyncio.create_task(client.search("Almere nieuws", max_results=3))
+    await started.wait()
+    second = asyncio.create_task(client.search("almere nieuws", max_results=3))
+    await asyncio.sleep(0)
+    release.set()
+    results = await asyncio.gather(first, second)
+
+    assert call_count == 1
+    assert results[0] == results[1]
+    assert results[0] is not results[1]
