@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ApiError, apiErrorDetail, prepareToolPayload } from "./api";
 import { clampDockPosition, parseStoredDockPosition } from "./dockPosition";
+import { webSearchStatusLabel } from "./policy";
 import {
   normalizeOperatorSelection,
   operatorContextMessage,
@@ -13,6 +14,12 @@ describe("voice dock contract", () => {
   it("keeps the six public tool names stable", () => {
     const names = ["inspect_workspace", "data_batch", "dashboard_batch", "nearby_places", "capture_dashboard", "external_search"];
     expect(new Set(names).size).toBe(6);
+  });
+
+  it("labels the compact websearch state without ambiguity", () => {
+    expect(webSearchStatusLabel(null)).toBe("Websearch-status laden");
+    expect(webSearchStatusLabel({ version: 1, web_search_enabled: false, auto_update_enabled: true })).toBe("Websearch uit");
+    expect(webSearchStatusLabel({ version: 2, web_search_enabled: true, auto_update_enabled: true })).toBe("Websearch aan");
   });
 
   it("injects the current dashboard version without model inspection", () => {

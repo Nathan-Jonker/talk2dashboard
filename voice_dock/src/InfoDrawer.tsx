@@ -3,6 +3,8 @@ import { Activity, Clock3, Database, Download, FileSearch, Search, Sparkles, Wre
 
 import { jsonRequest } from "./api";
 import { cachedEvidence, loadEvidence, type Evidence } from "./evidenceCache";
+import { POLICY_CHANGED_EVENT } from "./policy";
+import type { WorkspacePolicy } from "./policy";
 
 declare global {
   interface Window {
@@ -44,7 +46,6 @@ type DashboardVersion = {
   renderer_status: string;
 };
 
-type Policy = { version: number; web_search_enabled: boolean; auto_update_enabled: boolean };
 type CapabilityInput = { name: string; type: string; required: boolean; description: string };
 type AgentTool = {
   name: string;
@@ -90,7 +91,7 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
   const previousFocus = useRef<HTMLElement | null>(null);
   const [streams, setStreams] = useState<Stream[]>([]);
   const [history, setHistory] = useState<DashboardVersion[]>([]);
-  const [policy, setPolicy] = useState<Policy | null>(null);
+  const [policy, setPolicy] = useState<WorkspacePolicy | null>(null);
   const [tools, setTools] = useState<AgentTool[]>([]);
   const [sourceCatalog, setSourceCatalog] = useState<SourceCapability[]>([]);
   const [turns, setTurns] = useState<EvaluationTurn[]>([]);
@@ -121,7 +122,7 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
     void Promise.all([
       jsonRequest<Stream[]>("/api/streams"),
       jsonRequest<DashboardVersion[]>("/api/dashboard/configs"),
-      jsonRequest<Policy>("/api/policy"),
+      jsonRequest<WorkspacePolicy>("/api/policy"),
       jsonRequest<EvaluationTurn[]>("/api/evaluation/turns"),
       jsonRequest<AgentTool[]>("/api/agent-tools"),
       jsonRequest<SourceCapability[]>("/api/source-catalog")
@@ -134,6 +135,15 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
       setSourceCatalog(capabilities);
     });
   }, [open, evidenceRef]);
+
+  useEffect(() => {
+    const syncPolicy = (event: Event) => {
+      const next = (event as CustomEvent<WorkspacePolicy>).detail;
+      if (next) setPolicy(next);
+    };
+    window.addEventListener(POLICY_CHANGED_EVENT, syncPolicy);
+    return () => window.removeEventListener(POLICY_CHANGED_EVENT, syncPolicy);
+  }, []);
 
   useEffect(() => {
     if (!open || !evidenceRef) {
@@ -190,11 +200,12 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
     if (!policy || busy) return;
     setBusy(true);
     try {
-      const next = await jsonRequest<Policy>("/api/dashboard/user-settings", {
+      const next = await jsonRequest<WorkspacePolicy>("/api/dashboard/user-settings", {
         method: "POST",
         body: JSON.stringify({ web_search_enabled: !policy.web_search_enabled })
       });
       setPolicy(next);
+      window.dispatchEvent(new CustomEvent(POLICY_CHANGED_EVENT, { detail: next }));
     } finally {
       setBusy(false);
     }
@@ -204,9 +215,11 @@ export function InfoDrawer({ open, evidenceRef, onClose }: { open: boolean; evid
     if (!policy || busy) return;
     setBusy(true);
     try {
-      setPolicy(await jsonRequest<Policy>("/api/dashboard/user-settings", {
+      const next = await jsonRequest<WorkspacePolicy>("/api/dashboard/user-settings", {
         method: "POST", body: JSON.stringify({ auto_update_enabled: !policy.auto_update_enabled })
-      }));
+      });
+      setPolicy(next);
+      window.dispatchEvent(new CustomEvent(POLICY_CHANGED_EVENT, { detail: next }));
     } finally { setBusy(false); }
   };
 

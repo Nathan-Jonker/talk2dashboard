@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   Mic,
   Search,
+  SearchX,
   Send,
   SlidersHorizontal,
   Sparkles,
@@ -23,6 +24,8 @@ import { InfoDrawer } from "./InfoDrawer";
 import { prefetchEvidence } from "./evidenceCache";
 import { clampDockPosition, parseStoredDockPosition } from "./dockPosition";
 import type { DockPosition } from "./dockPosition";
+import { POLICY_CHANGED_EVENT, webSearchStatusLabel } from "./policy";
+import type { WorkspacePolicy } from "./policy";
 import {
   normalizeOperatorSelection,
   operatorContextMessage,
@@ -66,6 +69,8 @@ export function VoiceDock() {
   const [error, setError] = useState("");
   const [infoOpen, setInfoOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [policy, setPolicy] = useState<WorkspacePolicy | null>(null);
+  const [policyBusy, setPolicyBusy] = useState(false);
   const [dashboardOrigin, setDashboardOrigin] = useState<DashboardOrigin>("unknown");
   const [expanded, setExpanded] = useState(false);
   const [evidenceRef, setEvidenceRef] = useState<string | null>(null);
@@ -212,6 +217,22 @@ export function VoiceDock() {
     return () => {
       window.removeEventListener("talk2d:tool-start", onTool);
       window.removeEventListener("talk2d:tool-result", onResult);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const syncPolicy = (event: Event) => {
+      const next = (event as CustomEvent<WorkspacePolicy>).detail;
+      if (next) setPolicy(next);
+    };
+    window.addEventListener(POLICY_CHANGED_EVENT, syncPolicy);
+    void jsonRequest<WorkspacePolicy>("/api/policy")
+      .then((next) => { if (active) setPolicy(next); })
+      .catch(() => { if (active) setPolicy(null); });
+    return () => {
+      active = false;
+      window.removeEventListener(POLICY_CHANGED_EVENT, syncPolicy);
     };
   }, []);
 
@@ -577,6 +598,23 @@ export function VoiceDock() {
     ? { left: `${dockPosition.x}px`, top: `${dockPosition.y}px`, right: "auto" }
     : undefined;
 
+  const toggleWebSearch = async () => {
+    if (!policy || policyBusy) return;
+    setPolicyBusy(true);
+    try {
+      const next = await jsonRequest<WorkspacePolicy>("/api/dashboard/user-settings", {
+        method: "POST",
+        body: JSON.stringify({ web_search_enabled: !policy.web_search_enabled })
+      });
+      setPolicy(next);
+      window.dispatchEvent(new CustomEvent(POLICY_CHANGED_EVENT, { detail: next }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Websearch kon niet worden aangepast.");
+    } finally {
+      setPolicyBusy(false);
+    }
+  };
+
   return (
     <>
     {cerebrasGeneration.active && <aside className="cerebras-generation" role="status" aria-live="polite" aria-label="Cerebras stelt het dashboard samen">
@@ -616,6 +654,18 @@ export function VoiceDock() {
           <button className="voice-btn voice-btn--start" onClick={() => void start()} disabled={connecting} title="Gesprek starten"><Mic size={19} /><span>{connecting ? "Verbinden" : "Start"}</span></button>
         )}
         <span className="voice-compact-status" aria-live="polite">{labels[state]}</span>
+        <button
+          className="voice-icon-btn voice-search-toggle"
+          data-enabled={policy?.web_search_enabled ? "true" : "false"}
+          onClick={() => void toggleWebSearch()}
+          disabled={!policy || policyBusy}
+          aria-pressed={policy?.web_search_enabled || false}
+          aria-label={policy?.web_search_enabled ? "Websearch uitschakelen" : "Websearch inschakelen"}
+          title={`${webSearchStatusLabel(policy)} · klik om te wijzigen`}
+        >
+          {policy?.web_search_enabled ? <Search size={18} /> : <SearchX size={18} />}
+          <span className="voice-search-toggle__status" aria-hidden="true" />
+        </button>
         <button
           className="voice-icon-btn voice-guide-btn"
           onClick={() => {
