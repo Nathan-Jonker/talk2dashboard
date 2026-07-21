@@ -16,7 +16,9 @@ De demo begint met een actueel werkbeeld. Je kunt daarna bijvoorbeeld zeggen:
 
 De agent voert read-only queries uit, ontvangt opaque datahandles en mag daar panelen aan binden. Kaarten, ranglijsten, tijdreeksen, KPI's en feeds worden door een vaste registry gerenderd; de agent kan geen meetwaarde, timestamp, bron-ID, kleur of vrije HTML injecteren.
 
-**[Bekijk de Talk2Dashboard-productdemo (MP4, 4:55)](docs/assets/video/talk2dashboard-product-demo.mp4)**
+https://github.com/user-attachments/assets/9db33f2b-a5b1-466a-af32-e0c37628c13b
+
+**[Download de Talk2Dashboard-productdemo (MP4, 4:55)](docs/assets/video/talk2dashboard-product-demo.mp4)**
 
 In de demo selecteer ik een live melding, voeg ik operationele context uit meerdere bronnen toe en laat ik de agent het dashboard tijdens het gesprek herstructureren.
 
@@ -69,7 +71,9 @@ Voxtral was een apart geval. Mistral ondersteunt Nederlands als taal en de TTS-A
 
 ElevenLabs won uiteindelijk vrij overtuigend. Hun stemmen vind ik sowieso ongekend goed en Flash v2.5 leverde in mijn meting veruit het snelst bruikbare audio. Natuurlijk lever je ten opzichte van een zwaarder kwaliteitsmodel iets in, maar voor een gesprek als dit weegt die latency heel zwaar.
 
-[Beluister de Nederlandse OmniVoice-sample (MP3)](docs/assets/audio/omnivoice-dutch-sample.mp3)
+https://github.com/user-attachments/assets/b95fdf33-523e-44c3-860d-8d4297dc6c86
+
+[Download de Nederlandse OmniVoice-sample (MP3)](docs/assets/audio/omnivoice-dutch-sample.mp3)
 
 ### 2. De voice-agentroute kiezen
 
