@@ -16,9 +16,9 @@ The demo starts with a live operational view. A representative request is:
 
 The agent runs read-only queries, receives opaque data handles and can bind panels to those handles. Maps, rankings, time series, KPIs and feeds are rendered by a fixed registry. The agent cannot inject measurements, timestamps, source IDs, colours or arbitrary HTML.
 
-<!-- DEMO_VIDEO_PLACEHOLDER: add docs/assets/video/talk2dashboard-demo.mp4 after recording the product demo. -->
+**[Watch the Talk2Dashboard product demo (MP4, 4:55)](docs/assets/video/talk2dashboard-product-demo.mp4)**
 
-**Demo video:** still to be recorded.
+In the demo, I select a live signal, add operational context from multiple sources and let the agent restructure the dashboard during the conversation.
 
 ## Why I built this
 
@@ -148,7 +148,6 @@ Voice is not merely a chat layer on top of a dashboard. With fast models and sma
 
 ## Limitations and future work
 
-- The product-demo MP4 still needs to be recorded.
 - Parallel agent-level tool calls are not documented in the current ElevenLabs client-tool flow and are not part of this demo. A blocking client tool waits for its response. Independent queries inside one `data_batch` call do run concurrently, but that is backend batching rather than parallel agent tool calling.
 - Tool use during continuous speech and true full-duplex interaction should be retested with [GPT-Live](https://openai.com/index/introducing-gpt-live/) and later Gemini Live generations.
 - Dutch STT remains vulnerable to addresses, abbreviations and place names.

@@ -16,9 +16,9 @@ De demo begint met een actueel werkbeeld. Je kunt daarna bijvoorbeeld zeggen:
 
 De agent voert read-only queries uit, ontvangt opaque datahandles en mag daar panelen aan binden. Kaarten, ranglijsten, tijdreeksen, KPI's en feeds worden door een vaste registry gerenderd; de agent kan geen meetwaarde, timestamp, bron-ID, kleur of vrije HTML injecteren.
 
-<!-- DEMO_VIDEO_PLACEHOLDER: voeg docs/assets/video/talk2dashboard-demo.mp4 toe zodra de productdemo is opgenomen. -->
+**[Bekijk de Talk2Dashboard-productdemo (MP4, 4:55)](docs/assets/video/talk2dashboard-product-demo.mp4)**
 
-**Demo-video:** wordt nog opgenomen.
+In de demo selecteer ik een live melding, voeg ik operationele context uit meerdere bronnen toe en laat ik de agent het dashboard tijdens het gesprek herstructureren.
 
 ## Waarom ik dit heb gebouwd
 
@@ -154,7 +154,6 @@ Panelen zijn eveneens begrensd: feeds, events, KPI's, ranglijsten, tijdreeksen, 
 
 ## Beperkingen en toekomstwerk
 
-- De productdemo-MP4 moet nog worden opgenomen.
 - Parallelle toolcalls door de ElevenLabs-agent zelf zijn op dit moment niet gedocumenteerd en zitten ook niet in deze demo. De [client-toolflow](https://elevenlabs.io/docs/eleven-agents/customization/tools/client-tools) wacht bij een blocking tool op het resultaat. Binnen onze ene `data_batch`-call draaien onafhankelijke queries wel parallel, maar dat is batching achter de tool en dus iets anders. Echte parallelle toolcalls blijven een interessant opvolgpunt.
 - Toolcalls terwijl de agent al praat, en uiteindelijk een model dat echt tegelijk kan luisteren, spreken en handelen.
 - Beter nadenken over hoeveel tools je een agent geeft. Zes brede tools werkt voor deze demo, maar dit schaalt niet vanzelf netjes door. Een multi-agentopzet of slimmere capability router is een logisch vervolg.
