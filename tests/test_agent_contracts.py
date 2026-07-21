@@ -34,9 +34,11 @@ def test_elevenlabs_agent_config_is_dutch_normalized_and_blocking(services) -> N
     assert config["agent"]["first_message"] == ""
     assert config["agent"]["prompt"]["llm"] == "qwen36-35b-a3b"
     assert config["agent"]["prompt"]["enable_parallel_tool_calls"] is True
+    assert config["turn"]["turn_timeout"] == 15
+    assert config["turn"]["silence_end_call_timeout"] == 60
     assert config["tts"]["model_id"] == "eleven_flash_v2_5"
     assert config["tts"]["text_normalisation_type"] == "elevenlabs"
-    assert config["conversation"]["max_duration_seconds"] == settings.max_conversation_seconds
+    assert config["conversation"]["max_duration_seconds"] == 900
     end_call = config["agent"]["prompt"]["built_in_tools"]["end_call"]
     assert end_call["type"] == "system"
     assert end_call["params"]["system_tool_type"] == "end_call"

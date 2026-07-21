@@ -110,7 +110,8 @@ def desired_agent_config(
                 "user_input_audio_format": "pcm_16000",
             },
             "turn": {
-                "turn_timeout": 7,
+                "turn_timeout": settings.elevenlabs_turn_timeout_seconds,
+                "silence_end_call_timeout": settings.elevenlabs_silence_end_call_seconds,
                 "turn_eagerness": "normal",
                 "speculative_turn": False,
             },

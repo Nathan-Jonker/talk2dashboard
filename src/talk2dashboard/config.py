@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     elevenlabs_agent_id: str = "agent_3301kx2t5vbbfsbaezy059s1e8t8"
     elevenlabs_voice_id: str = "SXBL9NbvTrjsJQYay2kT"
     elevenlabs_llm_model: str = "qwen36-35b-a3b"
+    elevenlabs_turn_timeout_seconds: int = Field(default=15, ge=1, le=30)
+    elevenlabs_silence_end_call_seconds: int = Field(default=60, ge=-1, le=3600)
     elevenlabs_server_location: Literal["us", "eu-residency", "in-residency", "global"] = (
         "global"
     )
