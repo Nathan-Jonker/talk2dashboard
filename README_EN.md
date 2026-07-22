@@ -18,8 +18,6 @@ The agent runs read-only queries, receives opaque data handles and can bind pane
 
 https://github.com/user-attachments/assets/9db33f2b-a5b1-466a-af32-e0c37628c13b
 
-**[Download the Talk2Dashboard product demo (MP4, 4:55)](docs/assets/video/talk2dashboard-product-demo.mp4)**
-
 In the demo, I select a live signal, add operational context from multiple sources and let the agent restructure the dashboard during the conversation.
 
 ## Why I built this
@@ -65,9 +63,7 @@ Dutch pronunciation remains a difficult TTS benchmark. I compared cloud and loca
 
 The local candidates were [OmniVoice](https://huggingface.co/k2-fsa/OmniVoice), [Higgs Audio V2 / Higgs TTS 3](https://huggingface.co/bosonai/higgs-tts-3-4b) and [Fish Audio S2 Pro](https://huggingface.co/fishaudio/s2-pro). OmniVoice was not fast enough for this agent route, but running useful Dutch speech locally on this hardware was impressive.
 
-https://github.com/user-attachments/assets/b95fdf33-523e-44c3-860d-8d4297dc6c86
-
-[Download the Dutch OmniVoice sample (MP3)](docs/assets/audio/omnivoice-dutch-sample.mp3)
+https://github.com/user-attachments/assets/ac4fd142-0965-4063-a299-328f500b9007
 
 ### 2. Choosing the voice-agent route
 
